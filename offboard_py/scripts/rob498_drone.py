@@ -1,3 +1,5 @@
+#! /usr/bin/env python
+
 import rospy
 from std_srvs.srv import Empty, EmptyResponse
 from geometry_msgs.msg import PoseStamped
@@ -11,13 +13,16 @@ class Drone:
 
         self.local_pos_pub = rospy.Publisher("mavros/setpoint_position/local", PoseStamped, queue_size=10)
         self.state_sub = rospy.Subscriber("mavros/state", State, callback = self.state_cb)
-        arming_client = rospy.ServiceProxy(mavros.get_topic('cmd', 'arming'), CommandBool)
-        set_mode_client = rospy.ServiceProxy(mavros.get_topic('set_mode'), SetMode)
+        mavros.set_namespace()
+        self.arming_client = rospy.ServiceProxy(mavros.get_topic('cmd', 'arming'), CommandBool)
+        self.set_mode_client = rospy.ServiceProxy(mavros.get_topic('set_mode'), SetMode)
 
         self.srv_launch = rospy.Service('comm/launch', Empty, self.callback_launch)
         self.srv_test = rospy.Service('comm/test', Empty, self.callback_test)
         self.srv_land = rospy.Service('comm/land', Empty, self.callback_land)
         self.srv_abort = rospy.Service('comm/abort', Empty, self.callback_abort)
+        self.service_mode = "INIT"
+        self.pose = PoseStamped()
 
         self.state = State()
         prev_state = self.state
@@ -32,53 +37,54 @@ class Drone:
         # Setpoint publishing MUST be faster than 2Hz
         self.rate = rospy.Rate(20)
         # Wait for Flight Controller connection
+        print(self.state)
         while (not rospy.is_shutdown() and not self.state.connected):
             self.rate.sleep()
         rospy.loginfo("Flight controller connected!")
-
-        # Set the mode to OFFBOARD
-        now = rospy.get_rostime()
-        if self.state.mode != "OFFBOARD" and (now - last_request > rospy.Duration(5.)):
-            set_mode_client(base_mode=0, custom_mode="OFFBOARD")
-            last_request = now 
-        else:
-            if not self.state.armed and (now - last_request > rospy.Duration(5.)):
-               arming_client(True)
-               last_request = now 
-
-        # older versions of PX4 always return success==True, so better to check Status instead
-        if prev_state.armed != self.state.armed:
-            rospy.loginfo("Vehicle armed: %r" % self.state.armed)
-        if prev_state.mode != self.state.mode: 
-            rospy.loginfo("Current mode: %s" % self.state.mode)
-        prev_state = self.state
-
-        rospy.spin()
 
     def state_cb(self, msg):
         self.state = msg
     
     # Callback handlers
     def handle_launch(self):
+        self.service_mode = "LAUNCH"
         print('Launch Requested. Your drone should take off.')
-        pose = PoseStamped()
-        pose.header.stamp = rospy.Time.now()
-        pose.pose.position.x = 0
-        pose.pose.position.y = 0
-        pose.pose.position.z = 1
-        while not rospy.is_shutdown():
-            # Publish the setpoint
-            self.local_pos_pub.publish(pose)
-            self.rate.sleep()
+        
+        self.pose.header.stamp = rospy.Time.now()
+        self.pose.pose.position.x = 0
+        self.pose.pose.position.y = 0
+        self.pose.pose.position.z = 1.5
+
+        return
 
     def handle_test(self):
+        self.service_mode = "TEST"
         print('Test Requested. Your drone should perform the required tasks. Recording starts now.')
 
     def handle_land(self):
+        # If there is still stuff to execute in launch, wait for it to finish, then land 
+        self.service_mode = "LAND"
+
+        self.pose.header.stamp = rospy.Time.now()
+        self.pose.pose.position.x = 0
+        self.pose.pose.position.y = 0
+        self.pose.pose.position.z = 0
+
         print('Land Requested. Your drone should land.')
+        return 
 
     def handle_abort(self):
+        # Land even if stuff left to do in launch 
+        self.service_mode = "ABORT"
+
+        self.pose.header.stamp = rospy.Time.now()
+        self.pose.pose.position.x = 0
+        self.pose.pose.position.y = 0
+        self.pose.pose.position.z = 0
+        
         print('Abort Requested. Your drone should land immediately due to safety considerations')
+        
+        return 
 
     # Service callbacks
     def callback_launch(self, request):
@@ -106,11 +112,38 @@ def vicon_running(topic_name='vicon/ROB498_Drone/ROB498_Drone'):
 
     # Check if the topic exists by searching for its name in the list of published topics
     if any(topic_name in topic for topic in published_topics):
-        print(f"The topic '{topic_name}' exists, using vicon.")
+        #print(f"The topic '{topic_name}' exists, using vicon.")
         return True
     else:
-        print(f"The topic '{topic_name}' does not exist, not using vicon.")
+        #print(f"The topic '{topic_name}' does not exist, not using vicon.")
         return False
 
 if __name__ == "__main__":
+
     drone = Drone()
+    last_request = rospy.Time.now()
+    while not rospy.is_shutdown():
+        # Publish the setpoint
+        if drone.service_mode == "LAUNCH":
+            drone.pose.header.stamp = rospy.Time.now()
+            drone.pose.pose.position.x = 0
+            drone.pose.pose.position.y = 0
+            drone.pose.pose.position.z = 1.5
+        
+        if drone.service_mode == "LAND" or drone.service_mode == "ABORT":
+            drone.pose.header.stamp = rospy.Time.now()
+            drone.pose.pose.position.x = 0
+            drone.pose.pose.position.y = 0
+            drone.pose.pose.position.z = 0
+
+        if drone.state.mode != "OFFBOARD" and (rospy.Time.now() - last_request > rospy.Duration(5.)):
+            drone.set_mode_client(base_mode=0, custom_mode="OFFBOARD")
+            last_request = rospy.Time.now() 
+        else:
+            if not drone.state.armed and (rospy.Time.now() - last_request > rospy.Duration(5.)):
+                drone.arming_client(True)
+                last_request = rospy.Time.now()
+        drone.local_pos_pub.publish(drone.pose)
+        drone.rate.sleep()
+
+    rospy.spin()
