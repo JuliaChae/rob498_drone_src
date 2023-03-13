@@ -49,15 +49,15 @@ class Drone:
         # Set max vertical velocity and max horizontal velocity
         max_velocity = 2.0
         rospy.wait_for_service('/mavros/param/set')
+        self.params_client = rospy.ServiceProxy('/mavros/param/set', ParamSet)
+
         try:
-            max_hor_vel = rospy.ServiceProxy('/mavros/param/set', ParamSet)
-            max_hor_vel(param_id="MPC_XY_VEL_ALL", value=ParamValue(real=max_velocity))
+            self.params_client(param_id="MPC_XY_VEL_ALL", value=ParamValue(real=max_velocity))
             print("Service max_horizontal_velocity (MPC_XY_VEL_ALL) call succeeded, velocity set to {}".format(max_velocity))
         except rospy.ServiceException as e:
             print("Service max_horizontal_velocity (MPC_XY_VEL_ALL) call failed: %s" % e)
         try:
-            max_ver_vel = rospy.ServiceProxy('/mavros/param/set', ParamSet)
-            max_ver_vel(param_id="MPC_Z_VEL_MAX_ALL", value=ParamValue(real=max_velocity))
+            self.params_client(param_id="MPC_Z_VEL_MAX_ALL", value=ParamValue(real=max_velocity))
             print("Service max_vertical_velocity (MPC_Z_VEL_ALL) call succeeded, velocity set to {}".format(max_velocity))
         except rospy.ServiceException as e:
             print("Service max_vertical_velocity (MPC_Z_VEL_ALL) call failed: %s" % e)
