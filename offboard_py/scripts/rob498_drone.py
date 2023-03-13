@@ -2,17 +2,19 @@
 
 import rospy
 from std_srvs.srv import Empty, EmptyResponse
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, TwistStamped
 import mavros
-from mavros_msgs.msg import State
-from mavros_msgs.srv import CommandBool, SetMode
+from mavros_msgs.msg import State, ParamValue
+from mavros_msgs.srv import CommandBool, SetMode, ParamSet
 
 class Drone:
     def __init__(self):
         rospy.init_node('rob498_drone') 
 
         self.local_pos_pub = rospy.Publisher("mavros/setpoint_position/local", PoseStamped, queue_size=10)
+        self.local_vel_pub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel', TwistStamped, queue_size=10)
         self.state_sub = rospy.Subscriber("mavros/state", State, callback = self.state_cb)
+
         mavros.set_namespace()
         self.arming_client = rospy.ServiceProxy(mavros.get_topic('cmd', 'arming'), CommandBool)
         self.set_mode_client = rospy.ServiceProxy(mavros.get_topic('set_mode'), SetMode)
@@ -22,7 +24,9 @@ class Drone:
         self.srv_land = rospy.Service('comm/land', Empty, self.callback_land)
         self.srv_abort = rospy.Service('comm/abort', Empty, self.callback_abort)
         self.service_mode = "INIT"
+
         self.pose = PoseStamped()
+        self.vel = TwistStamped()
 
         self.state = State()
         prev_state = self.state
@@ -42,6 +46,22 @@ class Drone:
             self.rate.sleep()
         rospy.loginfo("Flight controller connected!")
 
+        # Set max vertical velocity and max horizontal velocity
+        max_velocity = 2.0
+        rospy.wait_for_service('/mavros/param/set')
+        try:
+            max_hor_vel = rospy.ServiceProxy('/mavros/param/set', ParamSet)
+            max_hor_vel(param_id="MPC_XY_VEL_ALL", value=ParamValue(real=max_velocity))
+            print("Service max_horizontal_velocity (MPC_XY_VEL_ALL) call succeeded, velocity set to {}".format(max_velocity))
+        except rospy.ServiceException as e:
+            print("Service max_horizontal_velocity (MPC_XY_VEL_ALL) call failed: %s" % e)
+        try:
+            max_ver_vel = rospy.ServiceProxy('/mavros/param/set', ParamSet)
+            max_ver_vel(param_id="MPC_Z_VEL_MAX_ALL", value=ParamValue(real=max_velocity))
+            print("Service max_vertical_velocity (MPC_Z_VEL_ALL) call succeeded, velocity set to {}".format(max_velocity))
+        except rospy.ServiceException as e:
+            print("Service max_vertical_velocity (MPC_Z_VEL_ALL) call failed: %s" % e)
+
     def state_cb(self, msg):
         self.state = msg
     
@@ -54,6 +74,10 @@ class Drone:
         self.pose.pose.position.x = 0
         self.pose.pose.position.y = 0
         self.pose.pose.position.z = 1.5
+
+        self.vel.twist.linear.x = 0
+        self.vel.twist.linear.y = 0
+        self.vel.twist.linear.z = 0.5
 
         return
 
@@ -123,7 +147,6 @@ if __name__ == "__main__":
     drone = Drone()
     last_request = rospy.Time.now()
     while not rospy.is_shutdown():
-        # Publish the setpoint
         if drone.service_mode == "LAUNCH":
             drone.pose.header.stamp = rospy.Time.now()
             drone.pose.pose.position.x = 0
@@ -143,7 +166,12 @@ if __name__ == "__main__":
             if not drone.state.armed and (rospy.Time.now() - last_request > rospy.Duration(5.)):
                 drone.arming_client(True)
                 last_request = rospy.Time.now()
+
+        # Publish the position setpoint
         drone.local_pos_pub.publish(drone.pose)
+        # Publish the velocity setpoint
+        drone.local_vel_pub.publish(drone.vel)
+
         drone.rate.sleep()
 
     rospy.spin()
