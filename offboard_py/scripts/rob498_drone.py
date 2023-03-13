@@ -30,7 +30,7 @@ class Drone:
 
         self.state = State()
         prev_state = self.state
-
+           
         if vicon_running():
             # Subscribe to the vicon topic /vicon/ROB498_Drone/ROB498_Drone
             rospy.Subscriber('vicon/ROB498_Drone/ROB498_Drone', PoseStamped, callback_vicon)
@@ -44,6 +44,19 @@ class Drone:
         print(self.state)
         while (not rospy.is_shutdown() and not self.state.connected):
             self.rate.sleep()
+        
+        self.pose.pose.position.x = 0
+        self.pose.pose.position.y = 0
+        self.pose.pose.position.z = 0
+        self.pose.pose.orientation.w = 1
+
+        for i in range(100):
+            if(rospy.is_shutdown()):
+                break
+
+            self.local_pos_pub.publish(self.pose)
+            self.rate.sleep()
+         
         rospy.loginfo("Flight controller connected!")
 
         # Set max vertical velocity and max horizontal velocity
@@ -147,6 +160,7 @@ if __name__ == "__main__":
     drone = Drone()
     last_request = rospy.Time.now()
     while not rospy.is_shutdown():
+        print(drone.service_mode)
         if drone.service_mode == "LAUNCH":
             drone.pose.header.stamp = rospy.Time.now()
             drone.pose.pose.position.x = 0
@@ -170,7 +184,7 @@ if __name__ == "__main__":
         # Publish the position setpoint
         drone.local_pos_pub.publish(drone.pose)
         # Publish the velocity setpoint
-        drone.local_vel_pub.publish(drone.vel)
+        #drone.local_vel_pub.publish(drone.vel)
 
         drone.rate.sleep()
 
