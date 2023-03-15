@@ -56,6 +56,22 @@ def callback_abort(request):
     handle_abort()
     return EmptyResponse()
 
+def callback_vicon(vicon_msg):
+    print("Received vicon message")
+    print(vicon_msg)
+
+def vicon_running(topic_name='vicon/ROB498_Drone/ROB498_Drone'):
+    # Get a list of tuples containing the names and data types of all the topics that are currently published
+    published_topics = rospy.get_published_topics()
+
+    # Check if the topic exists by searching for its name in the list of published topics
+    if any(topic_name in topic for topic in published_topics):
+        print("using vicon.")
+        return True
+    else:
+        print("not using vicon.")
+        return False
+
 if __name__ == "__main__":
     rospy.init_node("rob498_drone")
 
@@ -63,16 +79,23 @@ if __name__ == "__main__":
 
     local_pos_pub = rospy.Publisher("mavros/setpoint_position/local", PoseStamped, queue_size=10)
     
+    if vicon_running():
+        # Subscribe to the vicon topic /vicon/ROB498_Drone/ROB498_Drone
+        rospy.Subscriber('vicon/ROB498_Drone/ROB498_Drone', PoseStamped, callback_vicon)
+    else:
+        # Use data from the RealSense camera
+        pass
+
     rospy.wait_for_service("/mavros/cmd/arming")
     arming_client = rospy.ServiceProxy("mavros/cmd/arming", CommandBool)    
 
     rospy.wait_for_service("/mavros/set_mode")
     set_mode_client = rospy.ServiceProxy("mavros/set_mode", SetMode)
     
-    srv_launch = rospy.Service('comm/launch', Empty, callback_launch)
-    srv_test = rospy.Service('comm/test', Empty, callback_test)
-    srv_land = rospy.Service('comm/land', Empty, callback_land)
-    srv_abort = rospy.Service('comm/abort', Empty, callback_abort)
+    srv_launch = rospy.Service('/rob498_drone_05/comm/launch', Empty, callback_launch)
+    srv_test = rospy.Service('/rob498_drone_05/comm/test', Empty, callback_test)
+    srv_land = rospy.Service('/rob498_drone_05/comm/land', Empty, callback_land)
+    srv_abort = rospy.Service('/rob498_drone_05/comm/abort', Empty, callback_abort)
 
     # Setpoint publishing MUST be faster than 2Hz
     rate = rospy.Rate(20)
@@ -107,7 +130,7 @@ if __name__ == "__main__":
         if service_mode == 'INIT':
             pose.pose.position.z = 0
         elif service_mode == 'LAUNCH':
-            pose.pose.position.z = 1.4
+            pose.pose.position.z = 1.15
         elif service_mode == 'LAND': 
             pose.pose.position.z = 0
 

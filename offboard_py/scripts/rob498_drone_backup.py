@@ -92,7 +92,7 @@ class Drone:
         self.vel.twist.linear.y = 0
         self.vel.twist.linear.z = 0.5
 
-        return
+        returnTrue
 
     def handle_test(self):
         self.service_mode = "TEST"
