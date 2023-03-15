@@ -4,5 +4,5 @@
 
 
 	<!-- Our node to control the drone -->
-	<node pkg="offboard_py" type="rob498_drone.py" name="offb_node_py" required="true" output="screen" />
+	<node pkg="offboard_py" type="rob498_drone.py" name="rob498_drone" required="true" output="screen" />
 </launch>
