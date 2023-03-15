@@ -1,191 +1,128 @@
 #! /usr/bin/env python
 
 import rospy
-from std_srvs.srv import Empty, EmptyResponse
-from geometry_msgs.msg import PoseStamped, TwistStamped
-import mavros
-from mavros_msgs.msg import State, ParamValue
-from mavros_msgs.srv import CommandBool, SetMode, ParamSet
+from geometry_msgs.msg import PoseStamped
+from mavros_msgs.msg import State
+from mavros_msgs.srv import CommandBool, CommandBoolRequest, SetMode, SetModeRequest
+from std_srvs.srv import Empty, EmptyResponse 
 
-class Drone:
-    def __init__(self):
-        rospy.init_node('rob498_drone') 
+current_state = State()
+service_mode = "INIT"
 
-        self.local_pos_pub = rospy.Publisher("mavros/setpoint_position/local", PoseStamped, queue_size=10)
-        self.local_vel_pub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel', TwistStamped, queue_size=10)
-        self.state_sub = rospy.Subscriber("mavros/state", State, callback = self.state_cb)
+def state_cb(msg):
+    global current_state
+    current_state = msg
+   
+# Callback handlers
+def handle_launch():
+    global service_mode 
+    service_mode = "LAUNCH"
+    print('Launch Requested. Your drone should take off.')
+    return
 
-        mavros.set_namespace()
-        self.arming_client = rospy.ServiceProxy(mavros.get_topic('cmd', 'arming'), CommandBool)
-        self.set_mode_client = rospy.ServiceProxy(mavros.get_topic('set_mode'), SetMode)
+def handle_test():
+    global service_mode 
+    service_mode = "TEST"
+    print('Test Requested. Your drone should perform the required tasks. Recording starts now.')
 
-        self.srv_launch = rospy.Service('comm/launch', Empty, self.callback_launch)
-        self.srv_test = rospy.Service('comm/test', Empty, self.callback_test)
-        self.srv_land = rospy.Service('comm/land', Empty, self.callback_land)
-        self.srv_abort = rospy.Service('comm/abort', Empty, self.callback_abort)
-        self.service_mode = "INIT"
+def handle_land():
+    # If there is still stuff to execute in launch, wait for it to finish, then land 
+    global service_mode 
+    service_mode = "LAND"
+    print('Land Requested. Your drone should land.')
+    return 
 
-        self.pose = PoseStamped()
-        self.vel = TwistStamped()
+def handle_abort():
+    # Land even if stuff left to do in launch 
+    global service_mode 
+    service_mode = "ABORT" 
+    print('Abort Requested. Your drone should land immediately due to safety considerations')
+    return 
 
-        self.state = State()
-        prev_state = self.state
-           
-        if vicon_running():
-            # Subscribe to the vicon topic /vicon/ROB498_Drone/ROB498_Drone
-            rospy.Subscriber('vicon/ROB498_Drone/ROB498_Drone', PoseStamped, callback_vicon)
-        else:
-            # Use data from the RealSense camera
-            pass
+# Service callbacks
+def callback_launch(request):
+    handle_launch()
+    return EmptyResponse()
 
-        # Setpoint publishing MUST be faster than 2Hz
-        self.rate = rospy.Rate(20)
-        # Wait for Flight Controller connection
-        print(self.state)
-        while (not rospy.is_shutdown() and not self.state.connected):
-            self.rate.sleep()
-        
-        self.pose.pose.position.x = 0
-        self.pose.pose.position.y = 0
-        self.pose.pose.position.z = 0
-        self.pose.pose.orientation.w = 1
+def callback_test(request):
+    handle_test()
+    return EmptyResponse()
 
-        for i in range(100):
-            if(rospy.is_shutdown()):
-                break
+def callback_land(request):
+    handle_land()
+    return EmptyResponse()
 
-            self.local_pos_pub.publish(self.pose)
-            self.rate.sleep()
-         
-        rospy.loginfo("Flight controller connected!")
-
-        # Set max vertical velocity and max horizontal velocity
-        max_velocity = 2.0
-        rospy.wait_for_service('/mavros/param/set')
-        self.params_client = rospy.ServiceProxy('/mavros/param/set', ParamSet)
-
-        # try:
-        #     self.params_client(param_id="MPC_XY_VEL_ALL", value=ParamValue(real=max_velocity))
-        #     print("Service max_horizontal_velocity (MPC_XY_VEL_ALL) call succeeded, velocity set to {}".format(max_velocity))
-        # except rospy.ServiceException as e:
-        #     print("Service max_horizontal_velocity (MPC_XY_VEL_ALL) call failed: %s" % e)
-        # try:
-        #     self.params_client(param_id="MPC_Z_VEL_MAX_ALL", value=ParamValue(real=max_velocity))
-        #     print("Service max_vertical_velocity (MPC_Z_VEL_ALL) call succeeded, velocity set to {}".format(max_velocity))
-        # except rospy.ServiceException as e:
-        #     print("Service max_vertical_velocity (MPC_Z_VEL_ALL) call failed: %s" % e)
-
-    def state_cb(self, msg):
-        self.state = msg
-    
-    # Callback handlers
-    def handle_launch(self):
-        self.service_mode = "LAUNCH"
-        print('Launch Requested. Your drone should take off.')
-        
-        self.pose.header.stamp = rospy.Time.now()
-        self.pose.pose.position.x = 0
-        self.pose.pose.position.y = 0
-        self.pose.pose.position.z = 1.5
-
-        self.vel.twist.linear.x = 0
-        self.vel.twist.linear.y = 0
-        self.vel.twist.linear.z = 0.5
-
-        return
-
-    def handle_test(self):
-        self.service_mode = "TEST"
-        print('Test Requested. Your drone should perform the required tasks. Recording starts now.')
-
-    def handle_land(self):
-        # If there is still stuff to execute in launch, wait for it to finish, then land 
-        self.service_mode = "LAND"
-
-        self.pose.header.stamp = rospy.Time.now()
-        self.pose.pose.position.x = 0
-        self.pose.pose.position.y = 0
-        self.pose.pose.position.z = 0
-
-        print('Land Requested. Your drone should land.')
-        return 
-
-    def handle_abort(self):
-        # Land even if stuff left to do in launch 
-        self.service_mode = "ABORT"
-
-        self.pose.header.stamp = rospy.Time.now()
-        self.pose.pose.position.x = 0
-        self.pose.pose.position.y = 0
-        self.pose.pose.position.z = 0
-        
-        print('Abort Requested. Your drone should land immediately due to safety considerations')
-        
-        return 
-
-    # Service callbacks
-    def callback_launch(self, request):
-        self.handle_launch()
-        return EmptyResponse()
-
-    def callback_test(self, request):
-        self.handle_test()
-        return EmptyResponse()
-
-    def callback_land(self, request):
-        self.handle_land()
-        return EmptyResponse()
-
-    def callback_abort(self, request):
-        self.handle_abort()
-        return EmptyResponse()
-
-def callback_vicon(vicon_msg):
-    pass
-
-def vicon_running(topic_name='vicon/ROB498_Drone/ROB498_Drone'):
-    # Get a list of tuples containing the names and data types of all the topics that are currently published
-    published_topics = rospy.get_published_topics()
-
-    # Check if the topic exists by searching for its name in the list of published topics
-    if any(topic_name in topic for topic in published_topics):
-        #print(f"The topic '{topic_name}' exists, using vicon.")
-        return True
-    else:
-        #print(f"The topic '{topic_name}' does not exist, not using vicon.")
-        return False
+def callback_abort(request):
+    handle_abort()
+    return EmptyResponse()
 
 if __name__ == "__main__":
+    rospy.init_node("rob498_drone")
 
-    drone = Drone()
-    last_request = rospy.Time.now()
-    while not rospy.is_shutdown():
-        print(drone.service_mode)
-        if drone.service_mode == "LAUNCH":
-            drone.pose.header.stamp = rospy.Time.now()
-            drone.pose.pose.position.x = 0
-            drone.pose.pose.position.y = 0
-            drone.pose.pose.position.z = 1.5
-        
-        if drone.service_mode == "LAND" or drone.service_mode == "ABORT":
-            drone.pose.header.stamp = rospy.Time.now()
-            drone.pose.pose.position.x = 0
-            drone.pose.pose.position.y = 0
-            drone.pose.pose.position.z = 0
+    state_sub = rospy.Subscriber("mavros/state", State, callback = state_cb)
 
-        if drone.state.mode != "OFFBOARD" and (rospy.Time.now() - last_request > rospy.Duration(5.)):
-            drone.set_mode_client(base_mode=0, custom_mode="OFFBOARD")
-            last_request = rospy.Time.now() 
+    local_pos_pub = rospy.Publisher("mavros/setpoint_position/local", PoseStamped, queue_size=10)
+    
+    rospy.wait_for_service("/mavros/cmd/arming")
+    arming_client = rospy.ServiceProxy("mavros/cmd/arming", CommandBool)    
+
+    rospy.wait_for_service("/mavros/set_mode")
+    set_mode_client = rospy.ServiceProxy("mavros/set_mode", SetMode)
+    
+    srv_launch = rospy.Service('comm/launch', Empty, callback_launch)
+    srv_test = rospy.Service('comm/test', Empty, callback_test)
+    srv_land = rospy.Service('comm/land', Empty, callback_land)
+    srv_abort = rospy.Service('comm/abort', Empty, callback_abort)
+
+    # Setpoint publishing MUST be faster than 2Hz
+    rate = rospy.Rate(20)
+
+    # Wait for Flight Controller connection
+    while(not rospy.is_shutdown() and not current_state.connected):
+        rate.sleep()
+
+    pose = PoseStamped()
+
+    pose.pose.position.x = 0
+    pose.pose.position.y = 0
+    pose.pose.position.z = 0
+
+    # Send a few setpoints before starting
+    for i in range(100):   
+        if(rospy.is_shutdown()):
+            break
+
+        local_pos_pub.publish(pose)
+        rate.sleep()
+
+    offb_set_mode = SetModeRequest()
+    offb_set_mode.custom_mode = 'OFFBOARD'
+
+    arm_cmd = CommandBoolRequest()
+    arm_cmd.value = True
+
+    last_req = rospy.Time.now()
+
+    while(not rospy.is_shutdown()):
+        if service_mode == 'INIT':
+            pose.pose.position.z = 0
+        elif service_mode == 'LAUNCH':
+            pose.pose.position.z = 1.4
+        elif service_mode == 'LAND': 
+            pose.pose.position.z = 0
+
+        if(current_state.mode != "OFFBOARD" and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):
+            if(set_mode_client.call(offb_set_mode).mode_sent == True):
+                rospy.loginfo("OFFBOARD enabled")
+            
+            last_req = rospy.Time.now()
         else:
-            if not drone.state.armed and (rospy.Time.now() - last_request > rospy.Duration(5.)):
-                drone.arming_client(True)
-                last_request = rospy.Time.now()
+            if(not current_state.armed and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):
+                if(arming_client.call(arm_cmd).success == True):
+                    rospy.loginfo("Vehicle armed")
+            
+                last_req = rospy.Time.now()
 
-        # Publish the position setpoint
-        drone.local_pos_pub.publish(drone.pose)
-        # Publish the velocity setpoint
-        #drone.local_vel_pub.publish(drone.vel)
+        local_pos_pub.publish(pose)
 
-        drone.rate.sleep()
-
-    rospy.spin()
+        rate.sleep()
