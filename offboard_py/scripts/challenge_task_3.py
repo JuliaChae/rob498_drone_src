@@ -1,120 +1,91 @@
+import numpy as np
 import rospy
+from geometry_msgs.msg import PoseArray
 from std_srvs.srv import Empty, EmptyResponse
-from geometry_msgs.msg import PoseStamped
-import mavros
-from mavros_msgs.msg import State
-from mavros_msgs.srv import CommandBool, SetMode
 
-# Once the TA confirms that your drone is stable, the ground control server will send a TEST command,
-# along with a test identifier, the series of seven waypoints, and the current position of the drone in the
-# Vicon reference frame.
+STATE = 'Init'
+WAYPOINTS = None
+WAYPOINTS_RECEIVED = False
 
-class Drone:
-    def __init__(self):
-        rospy.init_node('rob498_drone') 
+# Callback handlers
+def handle_launch():
+    global STATE
+    STATE = 'Launch'
+    print('Launch Requested.')
 
-        self.local_pos_pub = rospy.Publisher("mavros/setpoint_position/local", PoseStamped, queue_size=10)
-        self.state_sub = rospy.Subscriber("mavros/state", State, callback = self.state_cb)
-        arming_client = rospy.ServiceProxy(mavros.get_topic('cmd', 'arming'), CommandBool)
-        set_mode_client = rospy.ServiceProxy(mavros.get_topic('set_mode'), SetMode)
+def handle_test():
+    global STATE
+    STATE = 'Test'
+    print('Test Requested.')
 
-        self.srv_launch = rospy.Service('comm/launch', Empty, self.callback_launch)
-        self.srv_test = rospy.Service('comm/test', Empty, self.callback_test)
-        self.srv_land = rospy.Service('comm/land', Empty, self.callback_land)
-        self.srv_abort = rospy.Service('comm/abort', Empty, self.callback_abort)
+def handle_land():
+    global STATE
+    STATE = 'Land'
+    print('Land Requested.')
 
-        self.state = State()
-        prev_state = self.state
+def handle_abort():
+    global STATE
+    STATE = 'Abort'
+    print('Abort Requested.')
 
-        if vicon_running():
-            # Subscribe to the vicon topic /vicon/ROB498_Drone/ROB498_Drone
-            rospy.Subscriber('vicon/ROB498_Drone/ROB498_Drone', PoseStamped, callback_vicon)
-        else:
-            # Use data from the RealSense camera
-            pass
+# Service callbacks
+def callback_launch(request):
+    handle_launch()
+    return EmptyResponse()
 
-        # Setpoint publishing MUST be faster than 2Hz
-        self.rate = rospy.Rate(20)
-        # Wait for Flight Controller connection
-        while (not rospy.is_shutdown() and not self.state.connected):
-            self.rate.sleep()
-        rospy.loginfo("Flight controller connected!")
+def callback_test(request):
+    handle_test()
+    return EmptyResponse()
 
-        # Set the mode to OFFBOARD
-        now = rospy.get_rostime()
-        if self.state.mode != "OFFBOARD" and (now - last_request > rospy.Duration(5.)):
-            set_mode_client(base_mode=0, custom_mode="OFFBOARD")
-            last_request = now 
-        else:
-            if not self.state.armed and (now - last_request > rospy.Duration(5.)):
-               arming_client(True)
-               last_request = now 
+def callback_land(request):
+    handle_land()
+    return EmptyResponse()
 
-        # older versions of PX4 always return success==True, so better to check Status instead
-        if prev_state.armed != self.state.armed:
-            rospy.loginfo("Vehicle armed: %r" % self.state.armed)
-        if prev_state.mode != self.state.mode: 
-            rospy.loginfo("Current mode: %s" % self.state.mode)
-        prev_state = self.state
+def callback_abort(request):
+    handle_abort()
+    return EmptyResponse()
 
-        rospy.spin()
+def callback_waypoints(msg):
+    global WAYPOINTS_RECEIVED, WAYPOINTS
+    if WAYPOINTS_RECEIVED:
+        return
+    print('Waypoints Received')
+    WAYPOINTS_RECEIVED = True
+    WAYPOINTS = np.empty((0,3))
+    for pose in msg.poses:
+        pos = np.array([pose.position.x, pose.position.y, pose.position.z])
+        WAYPOINTS = np.vstack((WAYPOINTS, pos))
 
-    def state_cb(self, msg):
-        self.state = msg
-    
-    # Callback handlers
-    def handle_launch(self):
-        print('Launch Requested. Your drone should take off.')
-        pose = PoseStamped()
-        pose.header.stamp = rospy.Time.now()
-        pose.pose.position.x = 0
-        pose.pose.position.y = 0
-        pose.pose.position.z = 1
-        while not rospy.is_shutdown():
-            # Publish the setpoint
-            self.local_pos_pub.publish(pose)
-            self.rate.sleep()
+# Main node
+def comm_node():
+    global STATE, WAYPOINTS, WAYPOINTS_RECEIVED
 
-    def handle_test(self):
-        print('Test Requested. Your drone should perform the required tasks. Recording starts now.')
+    # Do not change the node name and service topics!
+    name = 'rob498_drone_00'  # Change 00 to your team ID
+    rospy.init_node(name) 
+    srv_launch = rospy.Service(name+'/comm/launch', Empty, callback_launch)
+    srv_test = rospy.Service(name+'/comm/test', Empty, callback_test)
+    srv_land = rospy.Service(name+'/comm/land', Empty, callback_land)
+    srv_abort = rospy.Service(name+'/comm/abort', Empty, callback_abort)
 
-    def handle_land(self):
-        print('Land Requested. Your drone should land.')
+    sub_waypoints = rospy.Subscriber(name+'/comm/waypoints', PoseArray, callback_waypoints)
 
-    def handle_abort(self):
-        print('Abort Requested. Your drone should land immediately due to safety considerations')
+    print('This is a dummy drone node to test communication with the ground control')
+    while not rospy.is_shutdown():
+        if WAYPOINTS_RECEIVED:
+            print('Waypoints:\n', WAYPOINTS)
 
-    # Service callbacks
-    def callback_launch(self, request):
-        self.handle_launch()
-        return EmptyResponse()
+        # Your code goes here
+        if STATE == 'Launch':
+            print('Comm node: Launching...')
+        elif STATE == 'Test':
+            print('Comm node: Testing...')
+        elif STATE == 'Land':
+            print('Comm node: Landing...')
+        elif STATE == 'Abort':
+            print('Comm node: Aborting...')
 
-    def callback_test(self, request):
-        self.handle_test()
-        return EmptyResponse()
-
-    def callback_land(self, request):
-        self.handle_land()
-        return EmptyResponse()
-
-    def callback_abort(self, request):
-        self.handle_abort()
-        return EmptyResponse()
-
-def callback_vicon(vicon_msg):
-    pass
-
-def vicon_running(topic_name='vicon/ROB498_Drone/ROB498_Drone'):
-    # Get a list of tuples containing the names and data types of all the topics that are currently published
-    published_topics = rospy.get_published_topics()
-
-    # Check if the topic exists by searching for its name in the list of published topics
-    if any(topic_name in topic for topic in published_topics):
-        print(f"The topic '{topic_name}' exists, using vicon.")
-        return True
-    else:
-        print(f"The topic '{topic_name}' does not exist, not using vicon.")
-        return False
+        rospy.sleep(0.2)
 
 if __name__ == "__main__":
-    drone = Drone()
+    comm_node()
