@@ -132,7 +132,7 @@ if __name__ == "__main__":
         elif service_mode == 'LAUNCH':
             pose.pose.position.z = 1.15
         elif service_mode == 'LAND': 
-            pose.pose.position.z = 0
+            
 
         if(current_state.mode != "OFFBOARD" and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):
             if(set_mode_client.call(offb_set_mode).mode_sent == True):
