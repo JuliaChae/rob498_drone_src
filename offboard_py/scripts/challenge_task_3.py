@@ -1,9 +1,11 @@
 import numpy as np
 import rospy
 from geometry_msgs.msg import PoseArray, PoseStamped, TransformStamped
+from nav_msgs.msg import Odometry
 from std_srvs.srv import Empty, EmptyResponse
 from mavros_msgs.msg import State
 from mavros_msgs.srv import CommandBool, CommandBoolRequest, SetMode, SetModeRequest
+from tf.transformations import quaternion_matrix
 
 class ChallengeTask3:
 
@@ -12,11 +14,13 @@ class ChallengeTask3:
         self.WAYPOINTS = None
         self.WAYPOINTS_RECEIVED = False
         self.name = 'rob498_drone_05'  # Change 00 to your team ID
-        self.pose = PoseStamped()
-        self.current_state = State()
-        self.waypoint_cnt = -1
-        self.current_waypoint = np.zeros((0,3))
-        self.num_waypoints = 7
+        self.pose = PoseStamped() # pose to set local_position to 
+        self.current_state = State() 
+        self.waypoint_cnt = -1 # Current idx of the waypoint
+        self.current_waypoint = np.zeros((0,3)) # Waypoint position we are going 
+        self.num_waypoints = 7 # Expected number of waypoints
+        self.T_odom_vicon = np.eye(4) # Transform between odom and vicon frames
+        self.current_pose = np.zeros((0,3)) # Current pose of the drone from /mavros/odometry/out
 
     def state_cb(self, msg):
         self.current_state = msg
@@ -62,14 +66,27 @@ class ChallengeTask3:
         self.WAYPOINTS_RECEIVED = True
         self.WAYPOINTS = np.empty((0,3))
         for pose in msg.poses:
-            pos = np.array([pose.position.x, pose.position.y, pose.position.z])
-            # transform to drone frame from vicon frame
-            print("Waypoint added: ", pos)
+            pos_h = np.array([pose.position.x, pose.position.y, pose.position.z, 1])
+            pos_transformed = self.T_odom_vicon@pos_h.T # Transform from vicon frame to (pixhawk)odom frame
+            pos = pos_transformed[:-1].T
+            print("Waypoint added: \n")
+            print("In Vicon frame: ", pos_h[:-1])
+            print("In odom frame: ", pos)
             self.WAYPOINTS = np.vstack((self.WAYPOINTS, pos))
 
     def callback_vicon(self, vicon_msg):
         print("Received vicon message")
         print(vicon_msg)
+        if self.STATE == 'INIT':
+            # Construct rotation matrix between vicon and odom frames
+            R = quaternion_matrix(vicon_msg.transform.quaterion)
+            t = vicon_msg.transform.translation
+            self.T_odom_vicon[:3,:3] = R
+            self.T_odom_vicon[:3, 3] = t
+    
+    def callback_odom(self, odom_msg):
+        self.current_pose = np.array([odom_msg.pose.position.x, odom_msg.pose.position.y, odom_msg.pose.position.z])
+
 
     def vicon_running(topic_name='vicon/ROB498_Drone/ROB498_Drone'):
         # Get a list of tuples containing the names and data types of all the topics that are currently published
@@ -88,7 +105,7 @@ class ChallengeTask3:
         rospy.init_node(self.name)
 
         self.state_sub = rospy.Subscriber("mavros/state", State, callback = self.state_cb)
-        self.odom_sub = rospy.Subscriber("mavros/odometry")
+        self.odom_sub = rospy.Subscriber("mavros/odometry/out", Odometry, callback=self.callback_odom)
         self.local_pos_pub = rospy.Publisher("mavros/setpoint_position/local", PoseStamped, queue_size=10)
     
         if self.vicon_running():
@@ -109,8 +126,6 @@ class ChallengeTask3:
         self.srv_abort = rospy.Service(self.name+'/comm/abort', Empty, self.callback_abort)
 
         self.sub_waypoints = rospy.Subscriber(self.name+'/comm/waypoints', PoseArray, self.callback_waypoints)
-
-        # self.T_odom_vicon = rospy.lookUpTransform('/vicon', '/odom', )
 
     # Main node
     def comm_node(self):
@@ -160,17 +175,38 @@ class ChallengeTask3:
                 self.pose.pose.position.z = 1.15
             elif self.STATE == 'TEST' or (self.STATE == 'LAND' and self.waypoint_cnt < self.num_waypoints-1):
                 print('Comm node: Testing...')
-                
+
+                # Set pose to current goal waypoint
                 self.pose.pose.position.x = self.current_waypoint[0]
                 self.pose.pose.position.y = self.current_waypoint[1]
                 self.pose.pose.position.z = self.current_waypoint[2]
 
-                
-                # check condition - are we within 15 cm? 
-                # if we are, increment waypoint counter and set next self.current_waypoint 
-                # 
+                # Check if we are within the 15 cm sphere of waypoint 
+                if np.linalg.norm(self.current_waypoint - self.current_pose) < 0.15:
 
-            elif self.STATE == 'LAND' and self.WAYPOINTS.shape[0] > self.num_waypoints-1:
+                    start_time = rospy.Time.now()
+
+                    # If waypoint reached, hover for 5 seconds 
+                    while(rospy.Time.now() - start_time) < rospy.Duration(5.0):
+                        if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
+                            if(self.set_mode_client.call(self.offb_set_mode).mode_sent == True):
+                                rospy.loginfo("OFFBOARD enabled")
+                            
+                            self.last_req = rospy.Time.now()
+                        else:
+                            if(not self.current_state.armed and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
+                                if(self.arming_client.call(self.arm_cmd).success == True):
+                                    rospy.loginfo("Vehicle armed")
+                            
+                                self.last_req = rospy.Time.now()
+
+                        self.local_pos_pub.publish(self.pose)
+
+                    # Increment waypoint counter and waypoint                         
+                    self.waypoint_cnt += 1
+                    self.current_waypoint = self.WAYPOINTS[self.waypoint_cnt, :]
+
+            elif self.STATE == 'LAND' or self.WAYPOINTS.shape[0] > self.num_waypoints-1:
                 print('Comm node: Landing...')
                 self.pose.pose.position.z = 0
             elif self.STATE == 'ABORT':
