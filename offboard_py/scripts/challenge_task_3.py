@@ -13,15 +13,16 @@ class ChallengeTask3:
     def __init__(self):
         self.STATE = 'INIT'
         #self.WAYPOINTS = None
-        self.WAYPOINTS = np.array([[0, 1, 0.4],[0, 2, 0.4]])
+        self.WAYPOINTS = np.array([[0, 1, 0.4],[0, 2, 0.4],[1, 1, 0.6], [0, 0, 0.15]])
         #self.WAYPOINTS_RECEIVED = False
+        self.WAYPOINT_FLAG = [False, False, False, False]
         self.WAYPOINTS_RECEIVED = True
         self.name = 'rob498_drone_05'  # Change 00 to your team ID
         self.pose = PoseStamped() # pose to set local_position to 
         self.current_state = State() 
         self.waypoint_cnt = -1 # Current idx of the waypoint
         self.current_waypoint = np.zeros((0,3)) # Waypoint position we are going 
-        self.num_waypoints = 2 # Expected number of waypoints
+        self.num_waypoints = 4 # Expected number of waypoints
         self.T_odom_vicon = np.eye(4) # Transform between odom and vicon frames
         self.current_pose = np.zeros((0,3)) # Current pose of the drone from /mavros/odometry/out
         self.debug = True
@@ -131,6 +132,11 @@ class ChallengeTask3:
 
         self.sub_waypoints = rospy.Subscriber(self.name+'/comm/waypoints', PoseArray, self.callback_waypoints)
 
+        if self.WAYPOINTS_RECEIVED:
+            #print('Waypoints:\n', self.WAYPOINTS)
+            self.waypoint_cnt = 0
+            self.current_waypoint = self.WAYPOINTS[self.waypoint_cnt,:]
+
     # Main node
     def comm_node(self):
 
@@ -165,20 +171,15 @@ class ChallengeTask3:
 
         print('This is the ROB498 Challenge 3 drone waypoint following node')
         while not rospy.is_shutdown():
-            if self.WAYPOINTS_RECEIVED:
-                #print('Waypoints:\n', self.WAYPOINTS)
-                self.waypoint_cnt = 0
-                self.current_waypoint = self.WAYPOINTS[self.waypoint_cnt,:]
-
             # Your code goes here
             if self.STATE == 'INIT':
-                print('Comm node: Initializing...')
+                #print('Comm node: Initializing...')
                 self.pose.pose.position.z = 0
             if self.STATE == 'LAUNCH':
-                print('Comm node: Launching...')
+                #print('Comm node: Launching...')
                 self.pose.pose.position.z = 0.4
             elif self.STATE == 'TEST' or (self.STATE == 'LAND' and self.waypoint_cnt < self.num_waypoints-1):
-                print('Comm node: Testing...')
+                #print('Comm node: Testing...')
 
                 # Set pose to current goal waypoint
                 self.pose.pose.position.x = self.current_waypoint[0]
@@ -186,29 +187,34 @@ class ChallengeTask3:
                 self.pose.pose.position.z = self.current_waypoint[2]
 
                 # Check if we are within the 15 cm sphere of waypoint 
-                print(self.waypoint_cnt, self.current_waypoint, self.current_pose)
-                print(np.linalg.norm(self.current_waypoint - self.current_pose))
-                if np.linalg.norm(self.current_waypoint - self.current_pose) < 0.15:
-
+                #print(self.waypoint_cnt, self.current_waypoint, self.current_pose)
+                #print(np.linalg.norm(self.current_waypoint - self.current_pose))
+                if np.linalg.norm(self.current_waypoint - self.current_pose) < 0.15 and not self.WAYPOINT_FLAG[self.waypoint_cnt]:
+                    print("ARRIVED AT WAYPOINT")
+                    print(self.waypoint_cnt, self.current_waypoint, self.current_pose)
+                    print(np.linalg.norm(self.current_waypoint - self.current_pose))
+ 
                     start_time = rospy.Time.now()
+                    self.WAYPOINT_FLAG[self.waypoint_cnt] = True 
 
                     # If waypoint reached, hover for 5 seconds 
-                    if not self.debug:
-                        while(rospy.Time.now() - start_time) < rospy.Duration(5.0):
-                            if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
-                                if(self.set_mode_client.call(self.offb_set_mode).mode_sent == True):
-                                    rospy.loginfo("OFFBOARD enabled")
-                                
+                    while(rospy.Time.now() - start_time) < rospy.Duration(5.0):
+                        if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
+                            if(self.set_mode_client.call(self.offb_set_mode).mode_sent == True):
+                                rospy.loginfo("OFFBOARD enabled")
+                            
+                            self.last_req = rospy.Time.now()
+                        else:
+                            if(not self.current_state.armed and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
+                                if(self.arming_client.call(self.arm_cmd).success == True):
+                                    rospy.loginfo("Vehicle armed")
+                            
                                 self.last_req = rospy.Time.now()
-                            else:
-                                if(not self.current_state.armed and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
-                                    if(self.arming_client.call(self.arm_cmd).success == True):
-                                        rospy.loginfo("Vehicle armed")
-                                
-                                    self.last_req = rospy.Time.now()
 
-                    self.local_pos_pub.publish(self.pose)
+                        self.local_pos_pub.publish(self.pose)
+                        rate.sleep()
 
+                    print("5 SECONDS COMPLETE, MOVING TO NEXT WAYPOINT")
                     # Increment waypoint counter and waypoint                         
                     self.waypoint_cnt += 1
                     self.current_waypoint = self.WAYPOINTS[self.waypoint_cnt, :]
@@ -234,8 +240,7 @@ class ChallengeTask3:
                     self.last_req = rospy.Time.now()
 
             self.local_pos_pub.publish(self.pose)
-
-        rate.sleep()
+            rate.sleep()
 
 if __name__ == "__main__":
     challenge = ChallengeTask3()
