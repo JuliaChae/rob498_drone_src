@@ -23,12 +23,12 @@ class ChallengeTask3:
         self.current_state = State() 
         self.waypoint_cnt = -1 # Current idx of the waypoint
         self.current_waypoint = np.zeros((0,3)) # Waypoint position we are going 
-        self.T_odom_vicon = np.eye(4) # Transform between odom and vicon frames
+        self.T_odom_vicon = None # Transform between odom and vicon frames
         self.T_drone_vicon = np.eye(4) # Transform from drone to vicon frame (current step)
         self.T_odom_drone = np.eye(4) # Transform from the drone to the odom frame
         self.current_pose = np.zeros((0,3)) # Current pose of the drone from /mavros/odometry/out
         self.debug = True
-        self.use_vicon = True
+        self.use_vicon = False
 
     def state_cb(self, msg):
         self.current_state = msg
@@ -70,6 +70,8 @@ class ChallengeTask3:
     def callback_waypoints(self, msg):
         if self.WAYPOINTS_RECEIVED:
             return
+        if self.T_odom_vicon is None:
+            return 
         print('Waypoints Received')
         self.WAYPOINTS_RECEIVED = True
         self.WAYPOINTS = np.empty((0,3))
@@ -94,8 +96,8 @@ class ChallengeTask3:
                                             vicon_msg.transform.rotation.w 
                                             ]))
             t = vicon_msg.transform.translation
-            self.T_odom_vicon[:3,:3] = R
-            self.T_odom_vicon[:3, 3] = t
+            self.T_odom_vicon[:3,:3] = R[:3,:3]
+            self.T_odom_vicon[:3, 3] = np.array([t.x, t.y, t.z]).T
         elif self.STATE != 'INIT' and self.use_vicon:
             # Construct rotation matrix between vicon and odom frames
             R = quaternion_matrix(np.array([vicon_msg.transform.rotation.x, 
@@ -104,8 +106,8 @@ class ChallengeTask3:
                                             vicon_msg.transform.rotation.w 
                                             ]))
             t = vicon_msg.transform.translation
-            self.T_drone_vicon[:3,:3] = R
-            self.T_drone_vicon[:3, 3] = t
+            self.T_drone_vicon[:3,:3] = R[:3,:3]
+            self.T_drone_vicon[:3, 3] = np.array([t.x, t.y, t.z]).T
     
     def callback_odom(self, odom_msg):
         self.current_pose = np.array([odom_msg.pose.pose.position.x, odom_msg.pose.pose.position.y, odom_msg.pose.pose.position.z])
@@ -113,13 +115,12 @@ class ChallengeTask3:
                                         odom_msg.pose.pose.orientation.y,
                                         odom_msg.pose.pose.orientation.z,
                                         odom_msg.pose.pose.orientation.w]))
-        print(R)
+        #print(R)
         t = odom_msg.pose.pose.position
         T_drone_odom = np.eye(4)
-        T_drone_odom[:3,:3] = R
-        T_drone_odom[:3, 3] = t
-        self.T_odom_drone = np.inv(T_drone_odom)
-
+        T_drone_odom[:3,:3] = R[:3, :3]
+        T_drone_odom[:3, 3] = np.array([t.x, t.y, t.z]).T
+        self.T_odom_drone = np.linalg.inv(T_drone_odom)
 
     def vicon_running(self, topic_name='/vicon/ROB498_Drone/ROB498_Drone'):
         # Get a list of tuples containing the names and data types of all the topics that are currently published
@@ -166,6 +167,10 @@ class ChallengeTask3:
                 self.update_waypoint(self.WAYPOINTS_ORIG[self.waypoint_cnt,:])
             else:
                 self.current_waypoint = self.WAYPOINTS[self.waypoint_cnt,:]
+                print("FIRST WAYPOINT SET")
+
+            print(self.WAYPOINTS)
+            print(self.current_waypoint)
             return False
 
     def update_waypoint(self, waypoint):
@@ -216,25 +221,26 @@ class ChallengeTask3:
             if self.STATE == 'LAUNCH':
                 #print('Comm node: Launching...')
                 self.pose.pose.position.z = 0.4
-            elif self.STATE == 'TEST' or (self.STATE == 'LAND' and self.waypoint_cnt < self.num_waypoints-1):
+            elif (self.STATE == 'TEST' or (self.STATE == 'LAND' and self.waypoint_cnt < self.num_waypoints-1)):
                 #print('Comm node: Testing...')
-                
                 if self.use_vicon:
                     self.update_waypoint(self.WAYPOINTS_ORIG[self.waypoint_cnt,:])
 
                 # Set pose to current goal waypoint
-                self.pose.pose.position.x = self.current_waypoint[0]
-                self.pose.pose.position.y = self.current_waypoint[1]
-                self.pose.pose.position.z = self.current_waypoint[2]
+                if self.current_waypoint.shape[0] != 0: 
+                    self.pose.pose.position.x = self.current_waypoint[0]
+                    self.pose.pose.position.y = self.current_waypoint[1]
+                    self.pose.pose.position.z = self.current_waypoint[2]
 
                 # Check if we are within the 15 cm sphere of waypoint 
-                #print(self.waypoint_cnt, self.current_waypoint, self.current_pose)
+                #print(self.waypoint_cnt, self.current_waypsoint, self.current_pose)
                 #print(np.linalg.norm(self.current_waypoint - self.current_pose))
+
                 if np.linalg.norm(self.current_waypoint - self.current_pose) < 0.15 and not self.WAYPOINT_FLAG[self.waypoint_cnt]:
                     print("ARRIVED AT WAYPOINT")
                     print(self.waypoint_cnt, self.current_waypoint, self.current_pose)
                     print(np.linalg.norm(self.current_waypoint - self.current_pose))
- 
+
                     # start_time = rospy.Time.now()
                     self.WAYPOINT_FLAG[self.waypoint_cnt] = True 
 
@@ -244,13 +250,13 @@ class ChallengeTask3:
                     #     if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
                     #         if(self.set_mode_client.call(self.offb_set_mode).mode_sent == True):
                     #             rospy.loginfo("OFFBOARD enabled")
-                            
+                        
                     #         self.last_req = rospy.Time.now()
                     #     else:
                     #         if(not self.current_state.armed and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
                     #             if(self.arming_client.call(self.arm_cmd).success == True):
                     #                 rospy.loginfo("Vehicle armed")
-                            
+                        
                     #             self.last_req = rospy.Time.now()
 
                     #     self.local_pos_pub.publish(self.pose)
@@ -264,14 +270,12 @@ class ChallengeTask3:
                             self.current_waypoint = self.WAYPOINTS_ORIG[self.waypoint_cnt, :]
                         else:
                             self.current_waypoint = self.WAYPOINTS[self.waypoint_cnt, :]
-
             elif self.STATE == 'LAND' or self.waypoint_cnt > self.num_waypoints-1:
                 print('Comm node: Landing...')
                 self.pose.pose.position.z = 0
             elif self.STATE == 'ABORT':
                 print('Comm node: Aborting...')
                 self.pose.pose.position.z = 0
-
             
             if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
                 if(self.set_mode_client.call(self.offb_set_mode).mode_sent == True):
@@ -282,9 +286,9 @@ class ChallengeTask3:
                 if(not self.current_state.armed and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
                     if(self.arming_client.call(self.arm_cmd).success == True):
                         rospy.loginfo("Vehicle armed")
-                
+            
                     self.last_req = rospy.Time.now()
-
+                 
             self.local_pos_pub.publish(self.pose)
             rate.sleep()
 
