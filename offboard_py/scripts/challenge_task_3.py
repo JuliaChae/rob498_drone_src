@@ -98,6 +98,7 @@ class ChallengeTask3:
             t = vicon_msg.transform.translation
             self.T_odom_vicon[:3,:3] = R[:3,:3]
             self.T_odom_vicon[:3, 3] = np.array([t.x, t.y, t.z]).T
+            self.T_odom_vicon = np.linalg.inv(self.T_odom_vicon)
         elif self.STATE != 'INIT' and self.use_vicon:
             # Construct rotation matrix between vicon and odom frames
             R = quaternion_matrix(np.array([vicon_msg.transform.rotation.x, 
@@ -236,40 +237,40 @@ class ChallengeTask3:
                 #print(self.waypoint_cnt, self.current_waypsoint, self.current_pose)
                 #print(np.linalg.norm(self.current_waypoint - self.current_pose))
 
-                if np.linalg.norm(self.current_waypoint - self.current_pose) < 0.15 and not self.WAYPOINT_FLAG[self.waypoint_cnt]:
-                    print("ARRIVED AT WAYPOINT")
-                    print(self.waypoint_cnt, self.current_waypoint, self.current_pose)
-                    print(np.linalg.norm(self.current_waypoint - self.current_pose))
+                    if np.linalg.norm(self.current_waypoint - self.current_pose) < 0.15 and not self.WAYPOINT_FLAG[self.waypoint_cnt]:
+                        print("ARRIVED AT WAYPOINT")
+                        print(self.waypoint_cnt, self.current_waypoint, self.current_pose)
+                        print(np.linalg.norm(self.current_waypoint - self.current_pose))
 
-                    # start_time = rospy.Time.now()
-                    self.WAYPOINT_FLAG[self.waypoint_cnt] = True 
+                        # start_time = rospy.Time.now()
+                        self.WAYPOINT_FLAG[self.waypoint_cnt] = True 
 
-                    # # If waypoint reached, hover for 5 seconds 
-                    # while(rospy.Time.now() - start_time) < rospy.Duration(5.0):
-                    #     print("In 5 second time out...")
-                    #     if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
-                    #         if(self.set_mode_client.call(self.offb_set_mode).mode_sent == True):
-                    #             rospy.loginfo("OFFBOARD enabled")
-                        
-                    #         self.last_req = rospy.Time.now()
-                    #     else:
-                    #         if(not self.current_state.armed and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
-                    #             if(self.arming_client.call(self.arm_cmd).success == True):
-                    #                 rospy.loginfo("Vehicle armed")
-                        
-                    #             self.last_req = rospy.Time.now()
+                        # # If waypoint reached, hover for 5 seconds 
+                        # while(rospy.Time.now() - start_time) < rospy.Duration(5.0):
+                        #     print("In 5 second time out...")
+                        #     if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
+                        #         if(self.set_mode_client.call(self.offb_set_mode).mode_sent == True):
+                        #             rospy.loginfo("OFFBOARD enabled")
+                            
+                        #         self.last_req = rospy.Time.now()
+                        #     else:
+                        #         if(not self.current_state.armed and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
+                        #             if(self.arming_client.call(self.arm_cmd).success == True):
+                        #                 rospy.loginfo("Vehicle armed")
+                            
+                        #             self.last_req = rospy.Time.now()
 
-                    #     self.local_pos_pub.publish(self.pose)
-                    #     rate.sleep()
+                        #     self.local_pos_pub.publish(self.pose)
+                        #     rate.sleep()
 
-                    if self.WAYPOINT_FLAG[self.waypoint_cnt]:
-                        print("WAYPOINT REACHED, MOVING TO NEXT WAYPOINT")
-                        # Increment waypoint counter and waypoint                         
-                        self.waypoint_cnt += 1
-                        if self.use_vicon:
-                            self.current_waypoint = self.WAYPOINTS_ORIG[self.waypoint_cnt, :]
-                        else:
-                            self.current_waypoint = self.WAYPOINTS[self.waypoint_cnt, :]
+                        if self.WAYPOINT_FLAG[self.waypoint_cnt]:
+                            print("WAYPOINT REACHED, MOVING TO NEXT WAYPOINT")
+                            # Increment waypoint counter and waypoint                         
+                            self.waypoint_cnt += 1
+                            if self.use_vicon:
+                                self.current_waypoint = self.WAYPOINTS_ORIG[self.waypoint_cnt, :]
+                            else:
+                                self.current_waypoint = self.WAYPOINTS[self.waypoint_cnt, :]
             elif self.STATE == 'LAND' or self.waypoint_cnt > self.num_waypoints-1:
                 print('Comm node: Landing...')
                 self.pose.pose.position.z = 0
@@ -288,7 +289,8 @@ class ChallengeTask3:
                         rospy.loginfo("Vehicle armed")
             
                     self.last_req = rospy.Time.now()
-                 
+            print("Comm node: Publishing pose...")
+            print(self.pose)
             self.local_pos_pub.publish(self.pose)
             rate.sleep()
 
