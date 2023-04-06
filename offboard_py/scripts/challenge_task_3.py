@@ -12,17 +12,14 @@ class ChallengeTask3:
 
     def __init__(self):
         self.STATE = 'INIT'
-        self.num_waypoints = 7 # Expected number of waypoints
+        self.num_waypoints = 14 # Expected number of waypoints
         self.WAYPOINTS = None
         # self.WAYPOINTS = np.array([[0, 1, 0.4],[0, 2, 0.4],[1, 1, 0.6], [0, 0, 0.15]])
         self.WAYPOINTS_ORIG = None
         self.WAYPOINT_FLAG = np.full((self.num_waypoints, ), False)
         self.WAYPOINTS_RECEIVED = False
         self.halfface = 0.15
-        self.PERTURB_OFFSET = np.asarray([[-self.halfface, -self.halfface, self.halfface], 
-                                             [self.halfface, self.halfface, -self.halfface], 
-                                             [-self.halfface, -self.halfface, -self.halfface],
-                                             [self.halfface, self.halfface, self.halfface]]) 
+        self.PERTURB_OFFSET = np.asarray([[-self.halfface, -self.halfface, -self.halfface]])
         self.PERTURB_FLAG = np.full((self.PERTURB_OFFSET.shape[0], ), False)
         self.name = 'rob498_drone_05'  # Change 00 to your team ID
         self.pose = PoseStamped() # pose to set local_position to 
@@ -82,8 +79,22 @@ class ChallengeTask3:
         self.WAYPOINTS_RECEIVED = True
         self.WAYPOINTS = np.empty((0,3))
         self.WAYPOINT_ORIG = np.empty((0,3))
-        for pose in msg.poses:
-            pos_h = np.array([pose.position.x, pose.position.y, pose.position.z, 1])
+        for i, pose in enumerate(msg.poses):
+            if i < 3:
+                y_offset = -0.5 
+            elif i == 3:
+                y_offset = 0
+            else: 
+                y_offset = 0.2
+            pos_h = np.array([pose.position.x - 0.3, pose.position.y + 0.3 + y_offset, pose.position.z, 1])
+            pos_transformed = np.matmul(self.T_odom_vicon, pos_h.T) # Transform from vicon frame to (pixhawk)odom frame
+            pos = pos_transformed[:-1].T
+            print("Subwaypoint added: \n")
+            print("In Vicon frame: ", pos_h[:-1])
+            print("In odom frame: ", pos)
+            self.WAYPOINTS = np.vstack((self.WAYPOINTS, pos))
+            self.WAYPOINTS_ORIG = np.vstack((self.WAYPOINT_ORIG, pos_h[:-1]))
+            pos_h = np.array([pose.position.x, pose.position.y + y_offset, pose.position.z, 1])
             pos_transformed = np.matmul(self.T_odom_vicon, pos_h.T) # Transform from vicon frame to (pixhawk)odom frame
             pos = pos_transformed[:-1].T
             print("Waypoint added: \n")
@@ -276,7 +287,7 @@ class ChallengeTask3:
                 self.pose.pose.position.z = 0
             if self.STATE == 'LAUNCH':
                 #print('Comm node: Launching...')
-                self.pose.pose.position.z = 0.4
+                self.pose.pose.position.z = 1.0
                 #self.current_waypoint = np.asarray([0,0,0.4])
                 #self.perturb_from_waypoint()
 
@@ -308,7 +319,8 @@ class ChallengeTask3:
                         print("Error btwn vicon and odom: ", np.linalg.norm(self.current_pose - self.vicon_trans))
                         # start_time = rospy.Time.now()
 
-                        self.perturb_from_waypoint()
+                        if self.waypoint_cnt %2 == 1 and self.waypoint_cnt > 2:
+                            self.perturb_from_waypoint()
                         
                         self.WAYPOINT_FLAG[self.waypoint_cnt] = True 
                             

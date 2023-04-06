@@ -8,7 +8,7 @@ from mavros_msgs.msg import State
 from mavros_msgs.srv import CommandBool, CommandBoolRequest, SetMode, SetModeRequest
 from tf.transformations import quaternion_matrix
 
-class ChallengeTask4:
+class ChallengeTask3:
 
     def __init__(self):
         self.STATE = 'INIT'
@@ -203,18 +203,19 @@ class ChallengeTask4:
         perturb_waypoints = self.current_waypoint + self.PERTURB_OFFSET
         perturb_ind = 0   
         rate = rospy.Rate(20)     
-        while not rospy.is_shutdown():
-            
+        start = rospy.Time.now() 
+        while not rospy.is_shutdown() or (rospy.Time.now() - start) > rospy.Duration(5.0):
             self.pose.pose.position.x = perturb_waypoints[perturb_ind,0]
             self.pose.pose.position.y = perturb_waypoints[perturb_ind,1]
             self.pose.pose.position.z = perturb_waypoints[perturb_ind,2]
-
-            if np.linalg.norm(perturb_waypoints[perturb_ind, :] - self.current_pose) < 0.075 and not self.PERTURB_FLAG[perturb_ind]:
-                perturb_ind += 1
+            print(np.linalg.norm(perturb_waypoints[perturb_ind, :] - self.current_pose))
+            print(perturb_ind)
+            if np.linalg.norm(perturb_waypoints[perturb_ind, :] - self.current_pose) < 0.1 and not self.PERTURB_FLAG[perturb_ind]:
                 self.PERTURB_FLAG[perturb_ind] = True
+                perturb_ind += 1
             
             if perturb_ind >= self.PERTURB_OFFSET.shape[0]:
-
+                print("Reached perturb indices")
                 break
             
             if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - self.last_req) > rospy.Duration(5.0)):
@@ -232,7 +233,8 @@ class ChallengeTask4:
             #print(self.pose)
             self.local_pos_pub.publish(self.pose)
             rate.sleep()
-        
+        print("Done Perturbing")
+        self.PERTURB_FLAG = np.full((self.PERTURB_OFFSET.shape[0], ), False)
         return 
 
     # Main node
@@ -266,7 +268,7 @@ class ChallengeTask4:
 
         self.last_req = rospy.Time.now()
 
-        print('This is the ROB498 Challenge 4 drone waypoint following node')
+        print('This is the ROB498 Challenge 3 drone waypoint following node')
         while not rospy.is_shutdown():
             # Your code goes here
             if self.STATE == 'INIT':
@@ -275,12 +277,15 @@ class ChallengeTask4:
             if self.STATE == 'LAUNCH':
                 #print('Comm node: Launching...')
                 self.pose.pose.position.z = 0.4
+                #self.current_waypoint = np.asarray([0,0,0.4])
+                #self.perturb_from_waypoint()
+
             elif (self.STATE == 'TEST' or (self.STATE == 'LAND' and self.waypoint_cnt < self.num_waypoints-1)):
                 #print('Comm node: Testing...')
                 if self.use_vicon:
                     self.update_waypoint(self.WAYPOINTS_ORIG[self.waypoint_cnt,:])
                 
-                if self.current_waypoint >= self.num_waypoints:
+                if self.waypoint_cnt >= self.num_waypoints:
                     self.STATE = 'LAND'
                     break
 
@@ -338,5 +343,5 @@ class ChallengeTask4:
             rate.sleep()
 
 if __name__ == "__main__":
-    challenge = ChallengeTask4()
+    challenge = ChallengeTask3()
     challenge.comm_node()
