@@ -106,13 +106,13 @@ def main():
     rospy.Subscriber("/camera/fisheye2/image_raw", Image, img_cb2)
     rospy.Subscriber("/camera/fisheye2/camera_info", CameraInfo, camera_info_cb2)
     # publishers
-    UNDISTORT_PUB1 = rospy.Publisher("undistorted1/image_raw", Image, queue_size=1)
+    UNDISTORT_PUB1 = rospy.Publisher("/stereo/left/image_raw", Image, queue_size=1)
     CAMERA_INFO_PUB1 = rospy.Publisher(
-        "undistorted1/camera_info", CameraInfo, queue_size=1
+        "/stereo/left/camera_info", CameraInfo, queue_size=1
     )
-    UNDISTORT_PUB2 = rospy.Publisher("undistorted2/image_raw", Image, queue_size=1)
+    UNDISTORT_PUB2 = rospy.Publisher("/stereo/right/image_raw", Image, queue_size=1)
     CAMERA_INFO_PUB2 = rospy.Publisher(
-        "undistorted2/camera_info", CameraInfo, queue_size=1
+        "/stereo/right/camera_info", CameraInfo, queue_size=1
     )
     rate = rospy.Rate(10)
     while not rospy.is_shutdown():
