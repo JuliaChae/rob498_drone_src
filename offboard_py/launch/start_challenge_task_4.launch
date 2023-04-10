@@ -1,5 +1,20 @@
 <?xml version="1.0"?>
 <launch>
+    <!-- <include file="$(find rtabmap_ros)/launch/rtabmap.launch"> <arg name="rtabmap_args" value=""/>
+		<arg name="approx_sync" value="true"/>
+        <arg name="queue_size" value="20"/>
+
+        <arg name="stereo" value="true"/>
+        <arg name="left_image_topic" value="/stereo/left/image_rect"/>
+        <arg name="right_image_topic" value="/stereo/right/image_rect"/>
+        <arg name="right_camera_info_topic" value="/stereo/right/camera_info"/>
+        <arg name="left_camera_info_topic" value="/stereo/left/camera_info"/>
+        <arg name="odom_topic" value="/mavros/odometry/out"/>
+
+        <arg name="subscribe_scan_cloud" value="true"/>
+        <arg name="scan_cloud_topic" value="/stereo/points2"/>
+
+    </include> -->
     <!-- Argument for device id -->
     <!-- <arg name="leftcam" value="0"/>
     <arg name="rightcam" value="1"/> -->
