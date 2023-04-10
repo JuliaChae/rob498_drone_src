@@ -11,6 +11,7 @@ from cv_bridge import CvBridge
 from constants import *
 import copy
 
+
 UNDISTORT_PUB1 = None
 CAMERA_INFO_PUB1 = None
 UNDISTORT_PUB2 = None
@@ -118,6 +119,7 @@ def main():
     while not rospy.is_shutdown():
         if CAM_INFO1 is not None and CAM_INFO2 is not None and MAPX1 is None:
             init_maps()
+            
         rate.sleep()
 
 
