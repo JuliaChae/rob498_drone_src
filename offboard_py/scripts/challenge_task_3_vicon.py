@@ -80,12 +80,14 @@ class ChallengeTask3:
         self.WAYPOINTS = np.empty((0,3))
         self.WAYPOINT_ORIG = np.empty((0,3))
         for i, pose in enumerate(msg.poses):
-            if i < 3:
-                y_offset = -0.5 
-            elif i == 3:
-                y_offset = 0
-            else: 
-                y_offset = 0.2
+            # if i < 3:
+            #     y_offset = -0.5 
+            # elif i == 3:
+            #     y_offset = 0
+            # else: 
+            #     y_offset = 0.2
+            y_offset = 0
+            #pos_h = np.array([pose.position.x - 0.3, pose.position.y + 0.3 + y_offset, pose.position.z, 1])
             pos_h = np.array([pose.position.x - 0.3, pose.position.y + 0.3 + y_offset, pose.position.z, 1])
             pos_transformed = np.matmul(self.T_odom_vicon, pos_h.T) # Transform from vicon frame to (pixhawk)odom frame
             pos = pos_transformed[:-1].T
@@ -138,17 +140,17 @@ class ChallengeTask3:
             self.pose_vicon_drone = np.eye(4)
             self.pose_vicon_drone[:3,:3] = R[:3,:3]
             self.pose_vicon_drone[:3, 3] = np.array([t.x, t.y, t.z]).T
-        # R = quaternion_matrix(np.array([vicon_msg.transform.rotation.x,
-        #                                 vicon_msg.transform.rotation.y,
-        #                                 vicon_msg.transform.rotation.z,
-        #                                 vicon_msg.transform.rotation.w
-        #                                 ]))
-        # t = vicon_msg.transform.translation
-        # T_vicon_drone = np.eye(4)
-        # T_vicon_drone[:3,:3] = R[:3,:3]
-        # T_vicon_drone[:3, 3] = np.array([t.x, t.y, t.z]).T # translation of drone in vicon frame
-        # T_drone_odom = np.matmul(np.linalg.inv(T_vicon_drone), np.linalg.inv(self.T_odom_vicon))
-        # self.vicon_trans = np.linalg.inv(T_drone_odom)[:3,3]
+        R = quaternion_matrix(np.array([vicon_msg.transform.rotation.x,
+                                        vicon_msg.transform.rotation.y,
+                                        vicon_msg.transform.rotation.z,
+                                        vicon_msg.transform.rotation.w
+                                        ]))
+        t = vicon_msg.transform.translation
+        T_vicon_drone = np.eye(4)
+        T_vicon_drone[:3,:3] = R[:3,:3]
+        T_vicon_drone[:3, 3] = np.array([t.x, t.y, t.z]).T # translation of drone in vicon frame
+        T_drone_odom = np.matmul(np.linalg.inv(T_vicon_drone), np.linalg.inv(self.T_odom_vicon))
+        self.vicon_trans = np.linalg.inv(T_drone_odom)[:3,3]
 
     
     def callback_odom(self, odom_msg):
@@ -205,7 +207,7 @@ class ChallengeTask3:
     def update_waypoint(self, waypoint):
 
         curr_waypoint_h = np.hstack((waypoint, 1)) # waypoint in the vicon frame 
-        self.T_odom_vicon = np.matmul(self.T_odom_drone, self.linalg.inv(self.pose_vicon_drone)) # 
+        self.T_odom_vicon = np.matmul(self.T_odom_drone, np.linalg.inv(self.pose_vicon_drone)) # 
         curr_waypoint_h = np.matmul(self.T_odom_vicon, curr_waypoint_h)
         print("updated current waypoint: ", curr_waypoint_h[:-1])
         print("original current waypoint: ", self.current_waypoint)
