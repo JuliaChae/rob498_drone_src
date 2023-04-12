@@ -4,5 +4,5 @@
 
 
 	<!-- Our node to control the drone -->
-	<node pkg="offboard_py" type="challenge_task_3.py" name="rob498_drone_05" required="true" output="screen" />
+	<node pkg="offboard_py" type="challenge_task_3_vicon.py" name="rob498_drone_05" required="true" output="screen" />
 </launch>

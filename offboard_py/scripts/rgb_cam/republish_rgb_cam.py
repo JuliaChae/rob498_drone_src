@@ -7,20 +7,22 @@ from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 import numpy as np 
 
-K = np.asarray([[411.838509092687, 0, 289.815738517589], 
-                [0, 546.791755994532, 278.771000222491],
+# K = np.asarray([[411.838509092687, 0, 289.815738517589], 
+#                 [0, 546.791755994532, 278.771000222491],
+#                 [0, 0, 1]])
+K = np.asarray([[334.94030171, 0, 280.0627713], 
+                [0, 595.99313333, 245.316628], 
                 [0, 0, 1]])
 
-D = np.asarray([-0.337287855055825, 0.117096291002566,  0, 0])
+D = np.asarray([-0.36600591, 0.20973317, -0.00181088, 0.0010202208, -0.07504754])
 
-
-def capture_and_save_images():
+def repub_images():
     rospy.init_node("imx219_pub")
     image_pub= rospy.Publisher("imx219_image", Image, queue_size=10)
     bridge=CvBridge()
     rate=rospy.Rate(10)
 
-    cap = cv2.VideoCapture("nvarguscamerasrc ! video/x-raw(memory:NVMM), width=(int)1280, height=(int)720,format=(string)NV12, framerate=(fraction)30/1 ! nvvidconv ! video/x-raw, format=(string)BGRx ! videoconvert !  appsink")
+    cap = cv2.VideoCapture("nvarguscamerasrc ! video/x-raw(memory:NVMM), width=(int)540, height=(int)540,format=(string)NV12, framerate=(fraction)30/1 ! nvvidconv ! video/x-raw, format=(string)BGRx ! videoconvert !  appsink")
     if not cap.isOpened():
         print("Error")
         return
@@ -29,7 +31,7 @@ def capture_and_save_images():
         if not ret:
             print("Error")
             break
-        frame = cv2.resize(frame, (frame.shape[1]//3, frame.shape[0]//3))
+        # frame = cv2.resize(frame, (frame.shape[1]//3, frame.shape[0]//3))
         frame = cv2.undistort(frame, K, D)
         image_msg = bridge.cv2_to_imgmsg(frame, encoding='bgr8')
         image_msg.header.stamp = rospy.Time.now()
@@ -42,4 +44,4 @@ def capture_and_save_images():
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    capture_and_save_images()
+    repub_images()

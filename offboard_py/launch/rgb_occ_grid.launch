@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+	<node pkg="offboard_py" type="republish_rgb_cam.py" name="repub_cam" required="true" output="screen" />
+	<node pkg="offboard_py" type="detect_pillar.py" name="detect_pillar" required="true" output="screen" />
+	<node pkg="tf" type="static_transform_publisher" name="rgb_camera_link_tf" args="0.5 0.5 0.5 -0.5 0 -0.065 -0.07 base_link rgb_camera_link" required="true" />
+</launch>
