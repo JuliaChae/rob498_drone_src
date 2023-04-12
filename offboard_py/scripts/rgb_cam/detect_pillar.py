@@ -1,7 +1,11 @@
+#! /usr/bin/env python
 import numpy as np
 import cv2 
-import imutils 
 import argparse 
+from sensor_msgs.msg import Image, CameraInfo
+from cv_bridge import CvBridge
+import numpy as np 
+import rospy
 
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
@@ -17,55 +21,53 @@ upper_yellow = (30, 255, 255)
 lower_black = (0, 0, 0)
 upper_black = (30, 30, 30)
 
-def stream_video(): 
-    # Create a VideoCapture object and read from input file
-    # If the input is the camera, pass 0 instead of the video file name
-    cap = cv2.VideoCapture(args['video'])
-    
-    # Check if camera opened successfully
-    if (cap.isOpened()== False): 
-        print("Error opening video stream or file")
-    
-    # Read until video is completed
-    ind = 0
-    while(cap.isOpened()):
-        # Capture frame-by-frame
-        ret, frame = cap.read()
-        if ret == True:
-        
-            # Display the resulting frame
-            cv2.imshow('Frame',frame)
-            print(ind)
-            ind += 1
-            cv2.imwrite('pillar_data/frame'+str(ind)+'.jpg',frame)
-        
-            # Press Q on keyboard to  exit
-            if cv2.waitKey(25) & 0xFF == ord('q'):
-                break
-        # Break the loop
-        else: 
-            break
- 
-    # When everything done, release the video capture object
-    cap.release()
-    
-    # Closes all the frames
-    cv2.destroyAllWindows()
+class RGBOccupancyGrid:
 
-def pillar_detection(): 
-    # Create a VideoCapture object and read from input file
-    # If the input is the camera, pass 0 instead of the video file name
-    cap = cv2.VideoCapture(args['video'])
+    def __init__(self):
+        self.bridge=CvBridge()
+        self.detect_pub = rospy.Publisher("detected_pillars", Image, queue_size=10)
+        self.image_sub = rospy.Subscriber("imx219_image", Image, self.pillar_detection)
+
+    def stream_video(self): 
+        # Create a VideoCapture object and read from input file
+        # If the input is the camera, pass 0 instead of the video file name
+        cap = cv2.VideoCapture(args['video'])
+        
+        # Check if camera opened successfully
+        if (cap.isOpened()== False): 
+            print("Error opening video stream or file")
+        
+        # Read until video is completed
+        ind = 0
+        while(cap.isOpened()):
+            # Capture frame-by-frame
+            ret, frame = cap.read()
+            if ret == True:
+            
+                # Display the resulting frame
+                cv2.imshow('Frame',frame)
+                print(ind)
+                ind += 1
+                cv2.imwrite('pillar_data/frame'+str(ind)+'.jpg',frame)
+            
+                # Press Q on keyboard to  exit
+                if cv2.waitKey(25) & 0xFF == ord('q'):
+                    break
+            # Break the loop
+            else: 
+                break
     
-    # Check if camera opened successfully
-    if (cap.isOpened()== False): 
-        print("Error opening video stream or file")
-    
-    # Read until video is completed
-    ind = 0
-    while True:
+        # When everything done, release the video capture object
+        cap.release()
+        
+        # Closes all the frames
+        cv2.destroyAllWindows()
+
+    def pillar_detection(self, img): 
+        # Create a VideoCapture object and read from input file
+        # If the input is the camera, pass 0 instead of the video file name
         # Read a frame from the video stream
-        ret, frame = cap.read()
+        frame = self.bridge.imgmsg_to_cv2(img)
 
         # Convert the frame to the HSV color space
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -107,69 +109,67 @@ def pillar_detection():
                     cv2.putText(frame, "Yellow and Black Striped Pillar", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
         # Display the frame
-        cv2.imshow("Frame", frame)
+        image_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+        image_msg.header.stamp = rospy.Time.now()
+        self.detect_pub.publish(image_msg)
 
-        # Exit the loop if the "q" key is pressed
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
 
-    # Release the video stream and close all windows
-    cap.release()
-    cv2.destroyAllWindows()
+    def calibrate_camera():
+        # Define the size of the checkerboard
+        checkerboard_size = (7, 9)
 
-def calibrate_camera():
-    # Define the size of the checkerboard
-    checkerboard_size = (7, 9)
+        # Define the length of each square on the checkerboard in meters
+        square_size = 0.1
 
-    # Define the length of each square on the checkerboard in meters
-    square_size = 0.1
+        # Load the image of the checkerboard
+        img = cv2.imread('checkerboard.jpg')
 
-    # Load the image of the checkerboard
-    img = cv2.imread('checkerboard.jpg')
+        lwr = np.array([0, 0, 143])
+        upr = np.array([179, 61, 252])
 
-    lwr = np.array([0, 0, 143])
-    upr = np.array([179, 61, 252])
+        # Convert the image to grayscale
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        msk = cv2.inRange(hsv, lwr, upr)
 
-    # Convert the image to grayscale
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    msk = cv2.inRange(hsv, lwr, upr)
+        krn = cv2.getStructuringElement(cv2.MORPH_RECT, (50, 30))
+        dlt = cv2.dilate(msk, krn, iterations=5)
+        res = 255 - cv2.bitwise_and(dlt, msk)
 
-    krn = cv2.getStructuringElement(cv2.MORPH_RECT, (50, 30))
-    dlt = cv2.dilate(msk, krn, iterations=5)
-    res = 255 - cv2.bitwise_and(dlt, msk)
+        # Displaying chess-board features
+        res = np.uint8(res)
+        cv2.imshow("board", res)
 
-    # Displaying chess-board features
-    res = np.uint8(res)
-    cv2.imshow("board", res)
+        # Find the corners of the checkerboard
+        ret, corners = cv2.findChessboardCorners(res, checkerboard_size, None)
 
-    # Find the corners of the checkerboard
-    ret, corners = cv2.findChessboardCorners(res, checkerboard_size, None)
+        # If the corners are found, refine the corners to subpixel accuracy and draw them on the image
+        if ret == True:
+            corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
+            cv2.drawChessboardCorners(img, checkerboard_size, corners2, ret)
 
-    # If the corners are found, refine the corners to subpixel accuracy and draw them on the image
-    if ret == True:
-        corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
-        cv2.drawChessboardCorners(img, checkerboard_size, corners2, ret)
+            # Define the object points of the checkerboard
+            objp = np.zeros((np.prod(checkerboard_size), 3), np.float32)
+            objp[:, :2] = np.mgrid[0:checkerboard_size[0], 0:checkerboard_size[1]].T.reshape(-1, 2)
+            objp = objp * square_size
 
-        # Define the object points of the checkerboard
-        objp = np.zeros((np.prod(checkerboard_size), 3), np.float32)
-        objp[:, :2] = np.mgrid[0:checkerboard_size[0], 0:checkerboard_size[1]].T.reshape(-1, 2)
-        objp = objp * square_size
+            # Get the intrinsic parameters of the camera
+            ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera([objp], [corners2], gray.shape[::-1], None, None)
 
-        # Get the intrinsic parameters of the camera
-        ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera([objp], [corners2], gray.shape[::-1], None, None)
+            print("Camera matrix:")
+            print(mtx)
 
-        print("Camera matrix:")
-        print(mtx)
+            print("Distortion coefficients:")
+            print(dist)
+        else:
+            print("Failed to find corners of the checkerboard")
 
-        print("Distortion coefficients:")
-        print(dist)
-    else:
-        print("Failed to find corners of the checkerboard")
-
-    # Display the image
-    cv2.imshow('img', img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+        # Display the image
+        cv2.imshow('img', img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    calibrate_camera()
+    rospy.init_node("occ_grid")
+    occ_grid = RGBOccupancyGrid()
+    while not rospy.is_shutdown():
+        print("running pillar detection")
