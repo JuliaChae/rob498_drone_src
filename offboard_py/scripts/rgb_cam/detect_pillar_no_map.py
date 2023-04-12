@@ -23,15 +23,10 @@ lower_yellow = (20, 50, 50)
 upper_yellow = (40, 255, 255)
 
 lower_black = (0, 0, 0)
-upper_black = (50, 50, 50)
+upper_black = (30, 30, 30)
 
-
-
-# K = np.asarray([[411.838509092687, 0, 289.815738517589], 
-#                 [0, 546.791755994532, 278.771000222491],
-#                 [0, 0, 1]])
-K = np.asarray([[334.94030171, 0, 280.0627713], 
-                [0, 595.99313333, 245.316628], 
+K = np.asarray([[411.838509092687, 0, 289.815738517589], 
+                [0, 546.791755994532, 278.771000222491],
                 [0, 0, 1]])
 
 class RGBOccupancyGrid:
@@ -41,7 +36,7 @@ class RGBOccupancyGrid:
         self.detect_pub = rospy.Publisher("detected_pillars", Image, queue_size=10)
         self.image_sub = rospy.Subscriber("imx219_image", Image, self.pillar_detection)
         self.odom_sub = rospy.Subscriber("/mavros/odometry/out", Odometry, self.odom_callback)
-        self.obstacle_pub = rospy.Publisher("/obstacles", Odometry, queue_size=0)
+        self.obstacle_pub = rospy.Publisher("/obstacles", Odometry, queue_size=10)
 
         self.listener = tf.TransformListener()
 
@@ -163,11 +158,10 @@ class RGBOccupancyGrid:
         d = (fx*w_gt)/w
         print("The pillar is this far away: ", d)
 
-        # p_cam = np.matmul(K, np.asarray([x,y,1]).T)
-
-        # p_odom = np.matmul(self.T_odom_cam, p_cam)
+        # Not sure why we need the x,y coordinates in the image frame
+        p_cam = np.matmul(K, np.asarray([x,y,1]).T)
+        p_odom = np.matmul(self.T_odom_cam, p_cam)
         return d
-            # Update the coordinates of the closest obstacle
 
     def calibrate_camera(self):
         # Define the size of the checkerboard
@@ -227,6 +221,6 @@ class RGBOccupancyGrid:
 if __name__ == "__main__":
     rospy.init_node("occ_grid")
     occ_grid = RGBOccupancyGrid()
-    # occ_grid.calibrate_camera()
-    while not rospy.is_shutdown():
-        pass
+    occ_grid.calibrate_camera()
+    # while not rospy.is_shutdown():
+    #     pass
