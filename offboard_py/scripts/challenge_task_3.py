@@ -85,7 +85,7 @@ class ChallengeTask3:
             elif i == 3:
                 y_offset = -0.1
             else: 
-                y_offset = 0.05
+                y_offset = 0.1
             pos_h = np.array([pose.position.x - 0.3, pose.position.y + 0.3 + y_offset, pose.position.z, 1])
             pos_transformed = np.matmul(self.T_odom_vicon, pos_h.T) # Transform from vicon frame to (pixhawk)odom frame
             pos = pos_transformed[:-1].T

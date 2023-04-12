@@ -161,9 +161,10 @@ class ChallengeTask3:
                                         odom_msg.pose.pose.orientation.w]))
         #print(R)
         t = odom_msg.pose.pose.position
-        self.T_odom_drone = np.eye(4)
-        self.T_odom_drone[:3,:3] = R[:3, :3]
-        self.T_odom_drone[:3, 3] = np.array([t.x, t.y, t.z]).T
+        self.T_drone_odom = np.eye(4)
+        self.T_drone_odom[:3,:3] = R[:3, :3]
+        self.T_drone_odom[:3, 3] = np.array([t.x, t.y, t.z]).T
+        self.T_odom_drone = np.linalg.inv(self.T_drone_odom)
 
     def vicon_running(self, topic_name='/vicon/ROB498_Drone/ROB498_Drone'):
         # Get a list of tuples containing the names and data types of all the topics that are currently published
@@ -207,7 +208,7 @@ class ChallengeTask3:
     def update_waypoint(self, waypoint):
 
         curr_waypoint_h = np.hstack((waypoint, 1)) # waypoint in the vicon frame 
-        self.T_odom_vicon = np.matmul(self.T_odom_drone, np.linalg.inv(self.pose_vicon_drone)) # 
+        self.T_odom_vicon = np.matmul(self.T_drone_odom, np.linalg.inv(self.pose_vicon_drone)) # 
         curr_waypoint_h = np.matmul(self.T_odom_vicon, curr_waypoint_h)
         print("updated current waypoint: ", curr_waypoint_h[:-1])
         print("original current waypoint: ", self.current_waypoint)
@@ -298,7 +299,7 @@ class ChallengeTask3:
 
             elif (self.STATE == 'TEST' or (self.STATE == 'LAND' and self.waypoint_cnt < self.num_waypoints-1)):
                 #print('Comm node: Testing...')
-                if self.use_vicon:
+                if self.use_vicon and self.current_waypoint.shape[0] != 0:
                     self.update_waypoint(self.WAYPOINTS_ORIG[self.waypoint_cnt,:])
                 
                 if self.waypoint_cnt >= self.num_waypoints:
