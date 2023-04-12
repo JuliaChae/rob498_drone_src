@@ -23,10 +23,15 @@ lower_yellow = (20, 50, 50)
 upper_yellow = (40, 255, 255)
 
 lower_black = (0, 0, 0)
-upper_black = (30, 30, 30)
+upper_black = (50, 50, 50)
 
-K = np.asarray([[411.838509092687, 0, 289.815738517589], 
-                [0, 546.791755994532, 278.771000222491],
+
+
+# K = np.asarray([[411.838509092687, 0, 289.815738517589], 
+#                 [0, 546.791755994532, 278.771000222491],
+#                 [0, 0, 1]])
+K = np.asarray([[334.94030171, 0, 280.0627713], 
+                [0, 595.99313333, 245.316628], 
                 [0, 0, 1]])
 
 class RGBOccupancyGrid:
@@ -158,9 +163,9 @@ class RGBOccupancyGrid:
         d = (fx*w_gt)/w
         print("The pillar is this far away: ", d)
 
-        p_cam = np.matmul(K, np.asarray([x,y,1]).T)
+        # p_cam = np.matmul(K, np.asarray([x,y,1]).T)
 
-        p_odom = np.matmul(self.T_odom_cam, p_cam)
+        # p_odom = np.matmul(self.T_odom_cam, p_cam)
         return d
 
     def calibrate_camera(self):
@@ -221,6 +226,6 @@ class RGBOccupancyGrid:
 if __name__ == "__main__":
     rospy.init_node("occ_grid")
     occ_grid = RGBOccupancyGrid()
-    occ_grid.calibrate_camera()
-    # while not rospy.is_shutdown():
-    #     pass
+    # occ_grid.calibrate_camera()
+    while not rospy.is_shutdown():
+        pass
