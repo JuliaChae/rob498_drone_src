@@ -9,7 +9,7 @@ import numpy as np
 import rospy
 import tf
 from tf.transformations import quaternion_matrix
-import pdb 
+import pdb
 
 # construct the argument parser and parse the arguments
 # ap = argparse.ArgumentParser()
@@ -34,23 +34,33 @@ K = np.asarray([[334.94030171, 0, 280.0627713],
                 [0, 595.99313333, 245.316628], 
                 [0, 0, 1]])
 
-class RGBOccupancyGrid:
+# Measured with ruler, assuming there's no rotaional offset
+T_CAMERA_TO_PIXHAWK = np.eye(4)
+T_CAMERA_TO_PIXHAWK[0, 3] = 0.115
+T_CAMERA_TO_PIXHAWK[1, 3] = -0.06
+T_CAMERA_TO_PIXHAWK[2, 3] = -0.05
 
+NEW_OBS_DISTANCE_THRESHOLD = 0.2
+MIN_FRAMES_FOR_TRACK = 5
+
+class RGBOccupancyGrid:
     def __init__(self):
         self.bridge=CvBridge()
         self.detect_pub = rospy.Publisher("detected_pillars", Image, queue_size=10)
-        self.image_sub = rospy.Subscriber("imx219_image", Image, self.pillar_detection)
+        self.image_sub = rospy.Subscriber("imx219_image", Image, self.pillar_detection_callback)
         self.odom_sub = rospy.Subscriber("/mavros/odometry/out", Odometry, self.odom_callback)
-        self.obstacle_pub = rospy.Publisher("/obstacles", Odometry, queue_size=0)
+        # Why was the queue size 0?
+        self.obstacle_pub = rospy.Publisher("/obstacles", Odometry, queue_size=10)
+        self.transform_listener = tf.TransformListener()
 
-        self.listener = tf.TransformListener()
-
-        self.detected_pillars = []
-
-        self.pose = np.eye(4)
+        # This dictionary maps from obstacle ID to a dictionary of obstacle data, which includes
+        # the x, y position and the number of frames that the obstacle has been tracked for.
+        # It is being updated within the pillar_detection_callback function.
+        self.tracked_obstacles = {}
+        # This is the pose of the pixhawk in the world frame from odom_sub
+        self.pixhawk_to_world = np.eye(4)
         self.num = 0 
         
-
     def stream_video(self): 
         # Create a VideoCapture object and read from input file
         # If the input is the camera, pass 0 instead of the video file name
@@ -93,12 +103,11 @@ class RGBOccupancyGrid:
                                         odom_msg.pose.pose.orientation.w]))
         #print(R)
         t = odom_msg.pose.pose.position
-        self.pose = np.eye(4)
-        self.pose[:3,:3] = R[:3, :3]
-        self.pose[:3, 3] = np.array([t.x, t.y, t.z]).T
+        self.pixhawk_to_world = np.eye(4)
+        self.pixhawk_to_world[:3,:3] = R[:3, :3]
+        self.pixhawk_to_world[:3, 3] = np.array([t.x, t.y, t.z]).T
         
-
-    def pillar_detection(self, img): 
+    def pillar_detection_callback(self, img): 
         # Create a VideoCapture object and read from input file
         # If the input is the camera, pass 0 instead of the video file name
         # Read a frame from the video stream
@@ -126,6 +135,7 @@ class RGBOccupancyGrid:
         # cv2.drawContours(frame, contours, -1, (0,255,0), 3)
         # Loop through the contours
         for cnt in contours:
+            detected_dists = []
             # Calculate the area of the contour
             area = cv2.contourArea(cnt)
 
@@ -147,7 +157,11 @@ class RGBOccupancyGrid:
                 else:
                     dist = self.get_obstacle(x,y,w,h,"partial")
                     cv2.putText(frame, str(round(dist, 3)), (x+100, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
+                detected_dists.append(dist)
+            
+        # Update the tracked obstacles
+        self.update_obstacles(detected_dists)
+                
         # Display the frame
         image_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
         image_msg.header.stamp = rospy.Time.now()
@@ -165,9 +179,49 @@ class RGBOccupancyGrid:
 
         # p_cam = np.matmul(K, np.asarray([x,y,1]).T)
 
+        # Not sure why we need the x,y coordinates in the image frame
+        # p_cam = np.matmul(K, np.asarray([x,y,1]).T)
         # p_odom = np.matmul(self.T_odom_cam, p_cam)
         return d
+    
+    def update_tracked_obstacles(self, detected_dists):
+            # Loop over each new obstacle detection
+            for dist in detected_dists:
+                self.process_single_detection(dist)
+                
+    def process_single_detection(self, dist):
+        # Increase the distance by the radius of the pillar to get the center of the pillar
+        dist += 0.31
+        T_camera_to_world = np.matmul(T_CAMERA_TO_PIXHAWK, self.pixhawk_to_world)
+        # Find the x,y coordinates of the pillar in the world frame
+        detected_pillar_x = T_camera_to_world[0,3] + dist * T_camera_to_world[0,2]
+        detected_pillar_y = T_camera_to_world[1,3] + dist * T_camera_to_world[1,2]
+        
+        # Find the closest tracked obstacle to the current detection
+        closest_obstacle = None
+        closest_distance = float('inf')
+        for track_id, obstacle in self.tracked_obstacles.items():
+            obs_to_obs_dist = np.linalg.norm(np.array([detected_pillar_x, detected_pillar_y]) - np.array([obstacle['x'], obstacle['y']]))
+            if obs_to_obs_dist < closest_distance:
+                closest_distance = obs_to_obs_dist
+                closest_track_id = track_id
+
+        # Check if the closest obstacle to the current detection
+        # is within a certain distance threshold to the current detection
+        if closest_distance < NEW_OBS_DISTANCE_THRESHOLD:
             # Update the coordinates of the closest obstacle
+            self.tracked_obstacles[closest_track_id]['x'] = detected_pillar_x
+            self.tracked_obstacles[closest_track_id]['y'] = detected_pillar_y
+            self.tracked_obstacles[closest_track_id]['frames'] += 1
+        else:
+            # This is a new detection not seen before, 
+            # so create a new track ID for the current detection
+            new_track_id = len(self.tracked_obstacles) + 1
+            self.tracked_obstacles[new_track_id] = {
+                'x': detected_pillar_x,
+                'y': detected_pillar_y,
+                'frames': 1
+            }
 
     def calibrate_camera(self):
         # Define the size of the checkerboard
