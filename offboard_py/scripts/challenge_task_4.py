@@ -37,6 +37,12 @@ class ChallengeTask3:
         #self.spin_angles = np.linspace(-n, np.pi/4, 12)
         self.spin_angles = [np.pi/8, np.pi/4, 3*np.pi/8, np.pi/2,  5*np.pi/8, 3*np.pi/4, -3*np.pi/4, -5*np.pi/8, -np.pi/2, -3*np.pi/8, -np.pi/4, -np.pi/8, 0]
         self.spin_angle_count = 0
+        self.spin_done = False
+        self.obstacles_recieved = False
+        self.obstacle_map = None 
+        self.obstacle_type = None 
+        self.planning_done = False
+        self.avoid_distance = 1.0
 
     def state_cb(self, msg):
         self.current_state = msg
@@ -179,6 +185,27 @@ class ChallengeTask3:
 
         euler_angles =  tf.transformations.euler_from_quaternion(q)
         self.yaw_angle = euler_angles[2]
+    
+    def callback_obstacles(self, obstacle_msg):
+
+        if self.obstacles_received:
+            pass
+        else: 
+            self.obstacle_map = np.empty((0,3))
+            self.obstacle_type = []
+            self.obstacles_recieved = True 
+            for i, pose in enumerate(obstacle_msg.poses):
+                obs = np.array([pose.position.x, pose.position.y])
+
+                # Obstacle Map in the Odom Frame
+                self.obstacle_map = np.vstack((self.obstacle_map, obs))
+                if pose.position.z == 0:
+                    self.obstacle_type.append("R")
+                else:
+                    self.obstacle_type.append("L")
+
+            if self.obstacle_map.shape[0] != 4:
+                print("incorrect num obstacles!!")
 
     def vicon_running(self, topic_name='/vicon/ROB498_Drone/ROB498_Drone'):
         # Get a list of tuples containing the names and data types of all the topics that are currently published
@@ -266,6 +293,67 @@ class ChallengeTask3:
         self.PERTURB_FLAG = np.full((self.PERTURB_OFFSET.shape[0], ), False)
         return 
 
+    def run_planning(self):
+
+        if not self.obstacles_received or not self.WAYPOINTS_RECEIVED: 
+            return False 
+        
+        curr_pos = self.current_pose
+
+        for i, way_pt in enumerate(self.WAYPOINTS):
+
+            # Get the waypoint relative to the "current" position
+            way_pt = way_pt - curr_pos
+
+            # Get unit vector for the waypoint
+            way_pt_mag = np.linalg.norm(way_pt)
+            way_pt_norm = way_pt/way_pt_mag
+
+            # Get the obstacle distances to the path
+            obs_map_rel = self.obstacle_map - curr_pos 
+            obs_projs = np.matmul(obs_map_rel, way_pt_norm)
+            obs_projs_mags = np.linalg.norm(obs_projs, axis=1) 
+            obs_dist_vecs = obs_map_rel - obs_projs
+            obs_dists = np.linalg.norm(obs_dist_vecs, axis=1)
+
+            # Get obstacles that are along the path
+            obs_mask = np.logical_and(np.squeeze(obs_projs_mags > 0), np.squeeze(obs_projs_mags < way_pt_mag))
+            obs_mask = np.logical_and(obs_mask, np.squeeze(obs_dists < 1.0))
+
+            for j, obs in enumerate(self.obstacle_map):
+                on_right = None
+                if obs_mask[j] == True: 
+                    curr_obs_dist_vec = obs_dist_vecs[j]
+                    curr_obs_dist_unit = curr_obs_dist_vec/obs_dists[j]
+                    curr_obs_waypoint_dist_vec = np.matmul(obs_projs[j], curr_obs_dist_unit)
+                    if obs_dists[j] < np.linalg.norm(curr_obs_waypoint_dist_vec):
+                        print("to the right")
+                        on_right = True
+                    else: 
+                        print("to the left")
+                        on_right = False
+                    AVOID_WAYPOINTS = np.empty((0,3))
+                    if (self.obstacle_type["R"] and on_right) or (self.obstacle_type["L"] and not on_right): 
+                        dir_sign = -1 
+                    else: 
+                        dir_sign = 1
+
+                    # compute additional waypoints 
+                    wp_1 = curr_pos + dir_sign*curr_obs_dist_unit*self.avoid_distance
+                    wp_2 = wp_1 + way_pt
+                    wp_3 = wp_2 - dir_sign*curr_obs_dist_unit*self.avoid_distance
+                    
+                    print("Adding waypoints to avoid obstacle!")
+                    print("Obstacle: ", obs)
+                    print("Added Waypoints: ", np.asarray([[wp_1], [wp_2], [wp_3]]))
+                    
+                    # add additional waypoints into self.WAYPOINTS
+                    self.WAYPOINTS = np.insert(self.WAYPOINTS, i, np.asarray([[wp_1], [wp_2], [wp_3]]))
+
+            curr_pos = self.WAYPOINTS[i]
+
+        self.planning_done = True 
+
     # Main node
     def comm_node(self):
         self.start_up()
@@ -309,22 +397,32 @@ class ChallengeTask3:
                 #self.current_waypoint = np.asarray([0,0,0.4])
                 #self.perturb_from_waypoint()
             if self.STATE == 'SPIN':
-                if self.spin_angle_count >= len(self.spin_angles):
-                    self.pose.pose.position.z = 0
-                    continue
 
-                q = tf.transformations.quaternion_from_euler(0, 0, self.spin_angles[self.spin_angle_count])
-                
+                if not self.spin_done:
+                    # if self.spin_angle_count >= len(self.spin_angles):
+                    #     self.pose.pose.position.z = 0
+                    #     continue
 
-                if np.linalg.norm(self.spin_angles[self.spin_angle_count] - self.yaw_angle) < np.pi/10:
-                    print("next angle")
-                    self.spin_angle_count += 1
+                    q = tf.transformations.quaternion_from_euler(0, 0, self.spin_angles[self.spin_angle_count])
+                    
+                    if np.linalg.norm(self.spin_angles[self.spin_angle_count] - self.yaw_angle) < np.pi/10:
+                        print("next angle")
+                        self.spin_angle_count += 1
+                        if self.spin_angle_count == len(self.spin_angles):
+                            self.spin_done = True
+                        
+                    self.pose.pose.position.z = 0.4
+                    self.pose.pose.orientation.x = q[0]
+                    self.pose.pose.orientation.y = q[1]
+                    self.pose.pose.orientation.z = q[2]
+                    self.pose.pose.orientation.w = q[3]
 
-                self.pose.pose.position.z = 0.4
-                self.pose.pose.orientation.x = q[0]
-                self.pose.pose.orientation.y = q[1]
-                self.pose.pose.orientation.z = q[2]
-                self.pose.pose.orientation.w = q[3]
+                if self.spin_done: 
+                    # Run planning given the static map 
+                    if not self.planning_done: 
+                        self.run_planning()
+                    else:
+                        pass
 
             elif (self.STATE == 'TEST' or (self.STATE == 'LAND' and self.waypoint_cnt < self.num_waypoints-1)):
                 #print('Comm node: Testing...')
@@ -369,6 +467,7 @@ class ChallengeTask3:
             elif self.STATE == 'LAND' or self.waypoint_cnt > self.num_waypoints-1:
                 print('Comm node: Landing...')
                 self.pose.pose.position.z = 0
+            
             elif self.STATE == 'ABORT':
                 print('Comm node: Aborting...')
                 self.pose.pose.position.z = 0
