@@ -40,7 +40,7 @@ T_CAMERA_TO_PIXHAWK[0, 3] = 0.115
 T_CAMERA_TO_PIXHAWK[1, 3] = -0.06
 T_CAMERA_TO_PIXHAWK[2, 3] = -0.05
 
-NEW_OBS_DISTANCE_THRESHOLD = 0.2
+NEW_OBS_DISTANCE_THRESHOLD = 0.5
 MIN_FRAMES_FOR_TRACK = 5
 RADIUS = 0.159
 
@@ -125,47 +125,62 @@ class RGBOccupancyGrid:
 
         # Create a mask for the yellow and black colors
         yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
-        black_mask = cv2.inRange(hsv, lower_black, upper_black)
-
-        # Combine the masks to detect the yellow and black stripes
-        combined_mask = cv2.bitwise_or(yellow_mask, black_mask)
 
         # Apply a morphological opening to the combined mask to remove noise
         kernel = np.ones((5, 5), np.uint8)
-        combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
+        combined_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_OPEN, kernel)
 
         # Find the contours in the combined mask
         contours, hierarchy = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        max_area = -1 
+        valid_pillar = None
+        for cnt in contours: 
+            area = cv2.contourArea(cnt)
+            x, y, w, h = cv2.boundingRect(cnt)
+            fx = K[0,0]
+            w_gt = 0.3183
+            d = (fx*w_gt)/w
+            if area > 1000 and d > 0.5 and d < 3 and max_area < area and h > w:
+                valid_pillar = [x, y, w, h]
+                max_area = area 
+        
+        if valid_pillar is not None:
+            x, y, w, h = valid_pillar
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            dist, x_m = self.get_obstacle(x,y,w,h,"full")
+            detected_dists.append((dist, x_m))
+
         # cv2.drawContours(frame, contours, -1, (0,255,0), 3)
         # Loop through the contours
-        for cnt in contours:
-            detected_dists = []
-            # Calculate the area of the contour
-            area = cv2.contourArea(cnt)
+        # for cnt in contours:
+        #     detected_dists = []
+        #     # Calculate the area of the contour
+        #     area = cv2.contourArea(cnt)
 
-            # If the contour area is greater than a threshold, it's likely a pillar
-            if area > 1000:
-                # Draw a bounding box around the contour
-                x, y, w, h = cv2.boundingRect(cnt)
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        #     # If the contour area is greater than a threshold, it's likely a pillar
+        #     if area > 1000:
+        #         # Draw a bounding box around the contour
+        #         x, y, w, h = cv2.boundingRect(cnt)
+        #         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-                # Calculate the aspect ratio of the bounding box
-                aspect_ratio = float(w) / h
+        #         # Calculate the aspect ratio of the bounding box
+        #         aspect_ratio = float(w) / h
 
-                # If the aspect ratio is close to 1, it's a fully yellow pillar
-                if aspect_ratio >= 0.8 and aspect_ratio <= 1.2:
-                    dist, x_m = self.get_obstacle(x,y,w,h,"full")
-                    # print(dist)
-                    # print(x_m)
-                    # cv2.putText(frame, "Fully Yellow Pillar", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                    cv2.putText(frame, str(round(dist, 3)), (x+100, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                # If the aspect ratio is not close to 1, it's a yellow and black striped pillar
-                else:
-                    dist, x_m = self.get_obstacle(x,y,w,h,"partial")
-                    # print(dist)
-                    # print(x_m)
-                    cv2.putText(frame, str(round(dist, 3)), (x+100, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                detected_dists.append((dist, x_m))
+        #         # If the aspect ratio is close to 1, it's a fully yellow pillar
+        #         if aspect_ratio >= 0.8 and aspect_ratio <= 1.2:
+        #             dist, x_m = self.get_obstacle(x,y,w,h,"full")
+        #             # print(dist)
+        #             # print(x_m)
+        #             # cv2.putText(frame, "Fully Yellow Pillar", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        #             cv2.putText(frame, str(round(dist, 3)), (x+100, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        #         # If the aspect ratio is not close to 1, it's a yellow and black striped pillar
+        #         else:
+        #             dist, x_m = self.get_obstacle(x,y,w,h,"partial")
+        #             # print(dist)
+        #             # print(x_m)
+        #             cv2.putText(frame, str(round(dist, 3)), (x+100, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        #         detected_dists.append((dist, x_m))
             
         # Update the tracked obstacles
         self.update_tracked_obstacles(detected_dists)
@@ -211,11 +226,16 @@ class RGBOccupancyGrid:
         pixhawk_x = T_CAMERA_TO_PIXHAWK[0,3] + dist * np.cos(alpha)
         pixhawk_y = -T_CAMERA_TO_PIXHAWK[1,3] + dist * np.sin(alpha)
 
-        # print("ph x: ", pixhawk_x)
-        # print("ph y: ", pixhawk_y)
+        print("ph x: ", pixhawk_x)
+        print("ph y: ", pixhawk_y)
 
-        detected_pillar_x = self.pixhawk_to_world[0,3] + pixhawk_x * np.cos(beta)
-        detected_pillar_y = self.pixhawk_to_world[1,3] + pixhawk_y * np.sin(beta)
+        pixhawk_coord = np.asarray([pixhawk_x, pixhawk_y, self.pixhawk_to_world[2,3], 1]).T
+        world_coord = np.matmul(self.pixhawk_to_world, pixhawk_coord)
+        detected_pillar_x = world_coord[0]
+        detected_pillar_y = world_coord[1]
+        print((beta/np.pi)*180)
+        print("pillar x: ", detected_pillar_x)
+        print("pillar y: ", detected_pillar_y)
         
         # Find the closest tracked obstacle to the current detection
         closest_obstacle = None
