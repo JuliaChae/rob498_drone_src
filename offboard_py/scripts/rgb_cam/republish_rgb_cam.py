@@ -33,6 +33,7 @@ def repub_images():
             break
         # frame = cv2.resize(frame, (frame.shape[1]//3, frame.shape[0]//3))
         frame = cv2.undistort(frame, K, D)
+        frame = cv2.rotate(frame, cv2.ROTATE_180)
         image_msg = bridge.cv2_to_imgmsg(frame, encoding='bgr8')
         image_msg.header.stamp = rospy.Time.now()
         image_pub.publish(image_msg)
