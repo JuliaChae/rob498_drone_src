@@ -35,7 +35,10 @@ class ChallengeTask3:
         self.use_vicon = False
         self.yaw_angle = 0
         #self.spin_angles = np.linspace(-n, np.pi/4, 12)
-        self.spin_angles = [np.pi/8, np.pi/4, 3*np.pi/8, np.pi/2,  5*np.pi/8, 3*np.pi/4, -3*np.pi/4, -5*np.pi/8, -np.pi/2, -3*np.pi/8, -np.pi/4, -np.pi/8, 0]
+        pos_angles = np.linspace(0, 1, 10)*np.pi/2 
+        neg_angles = np.linspace(-0.9, 0, 9)*np.pi/2 
+        self.spin_angles = np.hstack([pos_angles, neg_angles])
+        #self.spin_angles = [np.pi/8, np.pi/4, 3*np.pi/8, np.pi/2,  5*np.pi/8, 3*np.pi/4, -3*np.pi/4, -5*np.pi/8, -np.pi/2, -3*np.pi/8, -np.pi/4, -np.pi/8, 0]
         self.spin_angle_count = 0
 
     def state_cb(self, msg):
@@ -316,7 +319,7 @@ class ChallengeTask3:
                 q = tf.transformations.quaternion_from_euler(0, 0, self.spin_angles[self.spin_angle_count])
                 
 
-                if np.linalg.norm(self.spin_angles[self.spin_angle_count] - self.yaw_angle) < np.pi/10:
+                if np.linalg.norm(self.spin_angles[self.spin_angle_count] - self.yaw_angle) < np.pi/20:
                     print("next angle")
                     self.spin_angle_count += 1
 
