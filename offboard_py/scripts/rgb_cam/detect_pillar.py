@@ -195,22 +195,22 @@ class RGBOccupancyGrid:
         return d, x_m
     
     def update_tracked_obstacles(self, detected_dists):
-            # Loop over each new obstacle detection
-            for dist_pair in detected_dists:
-                self.process_single_detection(dist_pair)
-            
-            # Check if mapping is complete. It's complete when there are 4 pillars
-            # each with frame count over MIN_FRAMES_FOR_NEW_PILLAR
-            # Grab all the detections in tracked_obstacles that have frame count over MIN_FRAMES_FOR_NEW_PILLAR
-            long_term_detections = [d for d in self.tracked_obstacles.values() if d['frames'] > MIN_FRAMES_FOR_NEW_PILLAR]
+        # Loop over each new obstacle detection
+        for dist_pair in detected_dists:
+            self.process_single_detection(dist_pair)
+        
+        # Check if mapping is complete. It's complete when there are 4 pillars
+        # each with frame count over MIN_FRAMES_FOR_NEW_PILLAR
+        # Grab all the detections in tracked_obstacles that have frame count over MIN_FRAMES_FOR_NEW_PILLAR
+        long_term_detections = [d for d in self.tracked_obstacles.values() if d['frames'] > MIN_FRAMES_FOR_NEW_PILLAR]
 
-            # If we haven't found the map yet, check if we can finalize the map
-            if len(self.final_pillars.items()) == 0:
-                map_done, final_pillars = self.verify_final_map(long_term_detections)
-                if map_done:
-                    self.final_pillars = final_pillars
-            else:
-                assert(len(self.final_pillars.items()) == 4)
+        # If we haven't found the map yet, check if we can finalize the map
+        if len(self.final_pillars.items()) == 0:
+            map_done, final_pillars = self.verify_final_map(long_term_detections)
+            if map_done:
+                self.final_pillars = final_pillars
+        else:
+            assert(len(self.final_pillars.items()) == 4)
 
     def publish_final_map(self):
         if len(self.final_pillars) == 0:
