@@ -248,6 +248,8 @@ class ChallengeTask3:
         self.srv_spin = rospy.Service(self.name+'/comm/spin', Empty, self.callback_spin)
 
         self.sub_waypoints = rospy.Subscriber(self.name+'/comm/waypoints', PoseArray, self.callback_waypoints)
+        self.sub_obstacles = rospy.Subscriber("/obstacles_map", PoseArray, self.callback_obstacles)
+
         return 
 
     def update_waypoint(self, waypoint):
