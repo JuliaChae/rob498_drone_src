@@ -41,6 +41,8 @@ class ChallengeTask3:
         #self.spin_angles = [np.pi/8, np.pi/4, 3*np.pi/8, np.pi/2,  5*np.pi/8, 3*np.pi/4, -3*np.pi/4, -5*np.pi/8, -np.pi/2, -3*np.pi/8, -np.pi/4, -np.pi/8, 0]
         self.spin_angle_count = 0
 
+        self.stopping_angles = [np.pi/4, 3*np.pi/4, -3*np.pi/4, -np.pi/4]
+
     def state_cb(self, msg):
         self.current_state = msg
 
@@ -319,8 +321,19 @@ class ChallengeTask3:
                 q = tf.transformations.quaternion_from_euler(0, 0, self.spin_angles[self.spin_angle_count])
                 
 
-                if np.linalg.norm(self.spin_angles[self.spin_angle_count] - self.yaw_angle) < np.pi/20:
-                    print("next angle")
+                if np.linalg.abs(self.spin_angles[self.spin_angle_count] - self.yaw_angle) < np.pi/20:
+                    print("next small increment")
+                    # Publish the pose for 5 seconds
+                    if np.linalg.abs(self.yaw_angle - self.stopping_angles[0]) < np.pi/20:
+                        print("Reaching recording point {0}".format(4 - len(self.stopping_angles)))
+                        start = rospy.Time.now()
+                        while not rospy.is_shutdown() and (rospy.Time.now() - start) < rospy.Duration(5.0):
+                            self.local_pos_pub.publish(self.pose)
+                            rate.sleep()
+                        print("Leaving recording point")
+                        self.stopping_angles = self.stopping_angles[1:]
+                    
+                    # Increment the small spin angle count
                     self.spin_angle_count += 1
 
                 self.pose.pose.position.z = 0.4
