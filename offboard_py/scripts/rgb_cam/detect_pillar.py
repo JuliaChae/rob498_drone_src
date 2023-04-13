@@ -11,6 +11,7 @@ import tf
 from tf.transformations import quaternion_matrix
 import pdb
 
+
 # construct the argument parser and parse the arguments
 # ap = argparse.ArgumentParser()
 # # ap.add_argument("-s", "--server-ip",
@@ -201,6 +202,9 @@ class RGBOccupancyGrid:
             
         # Update the tracked obstacles
         self.update_obstacles(detected_dists)
+
+        # Visualize the tracked obstacles in a new window
+        self.visualize_map()
                 
         # Display the frame
         image_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
@@ -223,6 +227,22 @@ class RGBOccupancyGrid:
         # p_cam = np.matmul(K, np.asarray([x,y,1]).T)
         # p_odom = np.matmul(self.T_odom_cam, p_cam)
         return d
+
+    def visualize_map(self):
+        # Create a new image
+        img = np.zeros((800, 800, 3), np.uint8)
+        # Loop through the tracked obstacles
+        for track_id, obstacle in self.tracked_obstacles.items():
+            if obstacle['frames'] < MIN_FRAMES_FOR_TRACK:
+                continue
+            # Get the x and y coordinates of the obstacle
+            x = obstacle['x']
+            y = obstacle['y']
+            # Draw the obstacle on the image
+            cv2.circle(img, (x, y), 10, (0, 255, 0), -1)  
+        # Display the image
+        cv2.imshow('Detected Obstacles', img)
+        cv2.waitKey(1)
 
     def calibrate_camera(self):
         # Define the size of the checkerboard
