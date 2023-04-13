@@ -10,6 +10,7 @@ import rospy
 import tf
 from tf.transformations import quaternion_matrix
 import pdb
+from geometry_msgs.msg import Pose, PoseArray
 
 # construct the argument parser and parse the arguments
 # ap = argparse.ArgumentParser()
@@ -40,9 +41,12 @@ T_CAMERA_TO_PIXHAWK[0, 3] = 0.115
 T_CAMERA_TO_PIXHAWK[1, 3] = -0.06
 T_CAMERA_TO_PIXHAWK[2, 3] = -0.05
 
-NEW_OBS_DISTANCE_THRESHOLD = 0.5
-MIN_FRAMES_FOR_TRACK = 5
+NEW_OBS_DISTANCE_THRESHOLD = 0.2
+MIN_FRAMES_FOR_NEW_PILLAR = 25
 RADIUS = 0.159
+MAX_POSSIBLE_DIST_TO_OBS = 5
+MIN_POSSIBLE_DIST_TO_OBS = 1.2
+MIN_DIST_BETWEEN_PILLARS = 2
 
 class RGBOccupancyGrid:
     def __init__(self):
@@ -51,13 +55,14 @@ class RGBOccupancyGrid:
         self.image_sub = rospy.Subscriber("imx219_image", Image, self.pillar_detection_callback)
         self.odom_sub = rospy.Subscriber("/mavros/odometry/out", Odometry, self.odom_callback)
         # Why was the queue size 0?
-        self.obstacle_pub = rospy.Publisher("/obstacles", Odometry, queue_size=10)
+        self.obstacle_pub = rospy.Publisher("/obstacles_map", PoseArray, queue_size=10)
         self.transform_listener = tf.TransformListener()
 
         # This dictionary maps from obstacle ID to a dictionary of obstacle data, which includes
         # the x, y position and the number of frames that the obstacle has been tracked for.
         # It is being updated within the pillar_detection_callback function.
         self.tracked_obstacles = {}
+        self.final_pillars = []
         # This is the pose of the pixhawk in the world frame from odom_sub
         self.pixhawk_to_world = np.eye(4)
         self.num = 0 
@@ -205,16 +210,80 @@ class RGBOccupancyGrid:
         return d, x_m
     
     def update_tracked_obstacles(self, detected_dists):
-            # Loop over each new obstacle detection
-            for dist_pair in detected_dists:
-                self.process_single_detection(dist_pair)
+        # Loop over each new obstacle detection
+        for dist_pair in detected_dists:
+            self.process_single_detection(dist_pair)
+        
+        # Check if mapping is complete. It's complete when there are 4 pillars
+        # each with frame count over MIN_FRAMES_FOR_NEW_PILLAR
+        # Grab all the detections in tracked_obstacles that have frame count over MIN_FRAMES_FOR_NEW_PILLAR
+        long_term_detections = [d for d in self.tracked_obstacles.values() if d['frames'] > MIN_FRAMES_FOR_NEW_PILLAR]
+
+        # If we haven't found the map yet, check if we can finalize the map
+        if len(self.final_pillars.items()) == 0:
+            map_done, final_pillars = self.verify_final_map(long_term_detections)
+            if map_done:
+                self.final_pillars = final_pillars
+        else:
+            assert(len(self.final_pillars.items()) == 4)
+
+    def publish_final_map(self):
+        if len(self.final_pillars) == 0:
+            return
+        else:
+            assert(len(self.final_pillars.items()) == 4)
+
+        pose_array = PoseArray()
+        # Set the frame ID for the PoseArray (optional)
+        pose_array.header.frame_id = "pillars_map"
+        # Loop over each sub-dictionary and create a new Pose object
+        for pillar in self.final_pillars:
+            pose = Pose()
+            pose.position.x = pillar['x']
+            pose.position.y = pillar['y']
+            pose.position.z = 0.0
+
+            # Add the Pose object to the PoseArray
+            pose_array.poses.append(pose)
+
+        # Publish the PoseArray
+        self.obstacle_pub.publish(pose_array)
+
+    def verify_final_map(self, candidates):
+        if len(candidates) < 4:
+            return False, None
+        
+        # Find the 4 best candidates. First sort by largest frame count first. Then, find 
+        # the first 4 candidates that are each at least MIN_DIST_BETWEEN_PILLARS apart
+        candidates.sort(key=lambda x: x['frames'], reverse=True)
+        final_pillars = []
+        for c in candidates:
+            if len(final_pillars) == 4:
+                break
+            if len(final_pillars) == 0:
+                final_pillars.append(c)
+            else:
+                # Check if the candidate is at least 
+                # MIN_DIST_BETWEEN_PILLARS away from all the other pillars
+                if all([np.linalg.norm(np.array([p['x'], p['y']]) - np.array([c['x'], c['y']])) > MIN_DIST_BETWEEN_PILLARS for p in final_pillars]):
+                    final_pillars.append(c)
+
+        if len(final_pillars) == 4:
+            return True, final_pillars
+        else:
+            return False, final_pillars
                 
     def process_single_detection(self, dist_pair):
         # Increase the distance by the radius of the pillar to get the center of the pillar
         # dist += 0.31
-        T_camera_to_world = np.matmul(self.pixhawk_to_world, T_CAMERA_TO_PIXHAWK)
         dist = dist_pair[0]
         y_m = -dist_pair[1]
+
+        # Threshold the distance to the pillar
+        if dist > MAX_POSSIBLE_DIST_TO_OBS or dist < MIN_POSSIBLE_DIST_TO_OBS:
+            return
+
+        T_camera_to_world = np.matmul(self.pixhawk_to_world, T_CAMERA_TO_PIXHAWK)
         D_1 = np.sin(y_m/dist)
         D_2 = T_camera_to_world[0,0]
         alpha = np.arctan2(D_1, np.sqrt(1 - D_1**2))
@@ -238,7 +307,6 @@ class RGBOccupancyGrid:
         print("pillar y: ", detected_pillar_y)
         
         # Find the closest tracked obstacle to the current detection
-        closest_obstacle = None
         closest_distance = float('inf')
         for track_id, obstacle in self.tracked_obstacles.items():
             obs_to_obs_dist = np.linalg.norm(np.array([detected_pillar_x, detected_pillar_y]) - np.array([obstacle['x'], obstacle['y']]))
@@ -262,7 +330,23 @@ class RGBOccupancyGrid:
                 'y': detected_pillar_y,
                 'frames': 1
             }
-        print(self.tracked_obstacles)
+        # print(self.tracked_obstacles)
+
+    def visualize_map(self):
+        # Create a new image
+        img = np.zeros((800, 800, 3), np.uint8)
+        # Loop through the tracked obstacles
+        for track_id, obstacle in self.tracked_obstacles.items():
+            if obstacle['frames'] < MIN_FRAMES_FOR_NEW_PILLAR:
+                continue
+            # Get the x and y coordinates of the obstacle
+            x = obstacle['x']
+            y = obstacle['y']
+            # Draw the obstacle on the image
+            cv2.circle(img, (x, y), 10, (0, 255, 0), -1)  
+        # Display the image
+        cv2.imshow('Detected Obstacles', img)
+        cv2.waitKey(1)
 
     def calibrate_camera(self):
         # Define the size of the checkerboard
@@ -323,5 +407,7 @@ if __name__ == "__main__":
     rospy.init_node("occ_grid")
     occ_grid = RGBOccupancyGrid()
     # occ_grid.calibrate_camera()
+    rate = rospy.Rate(10)
     while not rospy.is_shutdown():
-        pass
+        RGBOccupancyGrid.publish_final_map()
+        rate.sleep()
