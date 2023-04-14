@@ -15,12 +15,14 @@ class ChallengeTask3:
     def __init__(self):
         self.STATE = 'INIT'
         self.num_waypoints = 6 # Expected number of waypoints
-        # self.WAYPOINTS = None
-        self.WAYPOINTS = np.array([[0, 5, 1],[5, 5, 1],[5, 0, 1]])
+        self.WAYPOINTS = None
+        # self.WAYPOINTS = np.array([[0, 5, 1],[5, 5, 1],[5, 0, 1]])
+        # self.WAYPOINTS = np.array([[-2, 2, 1],[5, 5, 1],[5, 0, 1]])
+        # self.WAYPOINTS = np.array([[3,3,1]])
         self.WAYPOINTS_AVOID = np.zeros((0,3))
         self.WAYPOINTS_ORIG = None
         self.WAYPOINT_FLAG = np.full((self.num_waypoints, ), False)
-        self.WAYPOINTS_RECEIVED = True
+        self.WAYPOINTS_RECEIVED = False
         self.halfface = 0.15
         self.PERTURB_OFFSET = np.asarray([[-self.halfface, -self.halfface, -self.halfface]])
         self.PERTURB_FLAG = np.full((self.PERTURB_OFFSET.shape[0], ), False)
@@ -36,18 +38,23 @@ class ChallengeTask3:
         self.debug = True
         self.use_vicon = False
         self.yaw_angle = 0
-        #self.spin_angles = np.linspace(-n, np.pi/4, 12)
-        pos_angles = np.linspace(0, 1, 10)*np.pi/2 
-        neg_angles = np.linspace(-0.9, 0, 9)*np.pi/2 
+        pos_angles = np.linspace(0, 1, 20)*np.pi 
+        neg_angles = np.linspace(-0.9, 0, 19)*np.pi 
         self.spin_angles = np.hstack([pos_angles, neg_angles])
+        # self.spin_angles = pos_angles
         #self.spin_angles = [np.pi/8, np.pi/4, 3*np.pi/8, np.pi/2,  5*np.pi/8, 3*np.pi/4, -3*np.pi/4, -5*np.pi/8, -np.pi/2, -3*np.pi/8, -np.pi/4, -np.pi/8, 0]
         self.spin_angle_count = 0
-        self.spin_done = True
-        self.obstacles_received = True
-        self.obstacle_map = np.asarray([[2.5, 5], [5, 2.5]]) 
-        self.obstacle_type = ["R", "L"] 
+        self.stopping_angles = [np.pi/4, 3*np.pi/4, -3*np.pi/4, -np.pi/4]
+        # self.stopping_angles = [np.pi/4]
+        self.spin_done = False
+        self.obstacles_received = False    
+        # self.obstacle_map = np.asarray([[-1, 1], [0, 3.5]]) 
+        self.obstacle_map = None
+        # self.obstacle_type = ["R", "L"]
+        self.obstacle_type = ["L"]
         self.planning_done = False
         self.avoid_distance = 1.5
+        self.path_distance = 1.25
 
     def state_cb(self, msg):
         self.current_state = msg
@@ -195,25 +202,21 @@ class ChallengeTask3:
         self.yaw_angle = euler_angles[2]
     
     def callback_obstacles(self, obstacle_msg):
-
-        if self.obstacles_received:
+        if self.obstacles_received or not self.spin_done:
             pass
-        else: 
-            self.obstacle_map = np.empty((0,3))
+        elif not self.obstacles_received and self.spin_done:
+            self.obstacle_map = np.empty((0,2))
             self.obstacle_type = []
-            self.obstacles_recieved = True 
+            self.obstacles_received = True 
             for i, pose in enumerate(obstacle_msg.poses):
                 obs = np.array([pose.position.x, pose.position.y])
 
                 # Obstacle Map in the Odom Frame
                 self.obstacle_map = np.vstack((self.obstacle_map, obs))
-                if pose.position.z == 0:
+                if (obs[0]*obs[1] < 0):
                     self.obstacle_type.append("R")
                 else:
                     self.obstacle_type.append("L")
-
-            if self.obstacle_map.shape[0] != 4:
-                print("incorrect num obstacles!!")
 
     def vicon_running(self, topic_name='/vicon/ROB498_Drone/ROB498_Drone'):
         # Get a list of tuples containing the names and data types of all the topics that are currently published
@@ -309,6 +312,8 @@ class ChallengeTask3:
             return False 
         
         curr_pos = self.current_pose
+        # print(self.obstacle_map)
+        # print(self.WAYPOINTS)
 
         for i, way_pt in enumerate(self.WAYPOINTS):
 
@@ -318,21 +323,21 @@ class ChallengeTask3:
             # Get unit vector for the waypoint
             way_pt_mag = np.linalg.norm(way_pt)
             way_pt_norm = way_pt/way_pt_mag
-            print("way_pt_norm: ", way_pt_norm)
+            # print("way_pt_norm: ", way_pt_norm)
             # Get the obstacle distances to the path
             obs_map_rel = self.obstacle_map - curr_pos[:2] 
-            print("obs rel: ", obs_map_rel)
+            # print("obs rel: ", obs_map_rel)
             obs_projs = np.expand_dims((np.sum(obs_map_rel*np.vstack((way_pt, way_pt)), axis=1)/(way_pt_mag**2)), axis=-1)*way_pt
-            print("projs: ", obs_projs)
+            # print("projs: ", obs_projs)
             obs_projs_mags = np.linalg.norm(obs_projs, axis=1) 
             obs_dist_vecs = obs_map_rel - obs_projs
             obs_dists = np.linalg.norm(obs_dist_vecs, axis=1)
-            print("dist: ", obs_dists)
+            # print("dist: ", obs_dists)
 
             # Get obstacles that are along the path
             obs_mask = np.logical_and(np.squeeze(obs_projs_mags > 0), np.squeeze(obs_projs_mags < way_pt_mag))
-            obs_mask = np.logical_and(obs_mask, np.squeeze(obs_dists < 1.0))
-            pdb.set_trace()
+            obs_mask = np.logical_and(obs_mask, np.squeeze(obs_dists < self.path_distance))
+
             for j, obs in enumerate(self.obstacle_map):
                 on_right = None
                 if obs_mask[j] == True: 
@@ -352,11 +357,11 @@ class ChallengeTask3:
                             curr_obs_dist_unit = curr_obs_dist_unit / np.linalg.norm(curr_obs_dist_unit) 
                     else:
                         curr_obs_dist_unit = curr_obs_dist_vec/obs_dists[j]
-                    if np.cross(np.hstack(way_pt, np.asarray([1])), np.hstack(obs_map_rel[j], np.asarray([1])))[2] > 0:
-                        print("to the right")
+                    if np.cross(np.hstack((way_pt, np.asarray([1]))), np.hstack((obs_map_rel[j], np.asarray([1]))))[2] > 0:
+                        # print("to the right")
                         on_right = True
                     else: 
-                        print("to the left")
+                        # print("to the left")
                         on_right = True
                     AVOID_WAYPOINTS = np.empty((0,3))
                     if (self.obstacle_type[j] == "R" and on_right) or (self.obstacle_type[j] == "L" and not on_right): 
@@ -364,29 +369,36 @@ class ChallengeTask3:
                     else: 
                         dir_sign = 1
                     
-
                     # compute additional waypoints
                     # account for the distance from the waypoint line to the obstacle
-                    print("testing:", curr_pos[:2], dir_sign, curr_obs_dist_unit, self.avoid_distance)
+                    # print("testing:", curr_pos[:2], dir_sign, curr_obs_dist_unit, self.avoid_distance)
                     wp_1 = curr_pos[:2] + dir_sign*curr_obs_dist_unit*(self.avoid_distance + dir_sign*obs_dists[j])   
                     wp_1_full = np.hstack((wp_1, np.asarray([self.WAYPOINTS[i, 2]])))
                     wp_2 = wp_1 + way_pt
                     wp_2_full = np.hstack((wp_2, np.asarray([self.WAYPOINTS[i, 2]])))
                     AVOID_WAYPOINTS = np.vstack((wp_1_full, wp_2_full))
-                    print("Adding waypoints to avoid obstacle!")
-                    print("Obstacle: ", obs)
-                    print("Added Waypoints: ", np.asarray([[wp_1], [wp_2]]))
-                    pdb.set_trace()                    
+                    # print("Adding waypoints to avoid obstacle!")
+                    # print("Obstacle: ", obs)
+                    # print("Added Waypoints: ", np.asarray([[wp_1], [wp_2]]))                   
                     # add additional waypoints into self.WAYPOINTS
-                    print(self.WAYPOINTS.shape)
-                    print(AVOID_WAYPOINTS)
+                    # print(self.WAYPOINTS.shape)
+                    # print(AVOID_WAYPOINTS)
                     if self.WAYPOINTS_AVOID is None:
-                        self.WAYPOINTS_AVOID = np.vstack([self.WAYPOINTS[i], AVOID_WAYPOINTS])
+                        self.WAYPOINTS_AVOID = AVOID_WAYPOINTS
                     else:
-                        self.WAYPOINTS_AVOID = np.vstack([self.WAYPOINTS_AVOID, self.WAYPOINTS[i], AVOID_WAYPOINTS])
+                        self.WAYPOINTS_AVOID = np.vstack([self.WAYPOINTS_AVOID, AVOID_WAYPOINTS])
+
+            if self.WAYPOINTS_AVOID is None:
+                self.WAYPOINTS_AVOID = self.WAYPOINTS[i]
+            else:
+                self.WAYPOINTS_AVOID = np.vstack([self.WAYPOINTS_AVOID, self.WAYPOINTS[i]])
             curr_pos = self.WAYPOINTS[i]
 
+        print("DONE PLANNING")
         self.planning_done = True 
+        self.WAYPOINTS = self.WAYPOINTS_AVOID
+        self.num_waypoints = self.WAYPOINTS.shape[0]
+        print("All waypoints: ", self.WAYPOINTS)
 
     # Main node
     def comm_node(self):
@@ -427,25 +439,40 @@ class ChallengeTask3:
                 self.pose.pose.position.z = 0
             if self.STATE == 'LAUNCH':
                 #print('Comm node: Launching...')
-                self.pose.pose.position.z = 0.4
+                self.pose.pose.position.z = 0.5
                 #self.current_waypoint = np.asarray([0,0,0.4])
                 #self.perturb_from_waypoint()
             if self.STATE == 'SPIN':
 
                 if not self.spin_done:
-                    # if self.spin_angle_count >= len(self.spin_angles):
-                    #     self.pose.pose.position.z = 0
-                    #     continue
 
                     q = tf.transformations.quaternion_from_euler(0, 0, self.spin_angles[self.spin_angle_count])
-                    
-                    if np.linalg.norm(self.spin_angles[self.spin_angle_count] - self.yaw_angle) < np.pi/10:
-                        print("next angle")
-                        self.spin_angle_count += 1
-                        if self.spin_angle_count == len(self.spin_angles):
-                            self.spin_done = True
+                    print("Current spin angle: ", self.spin_angles[self.spin_angle_count])
+                    print("At this angle: ", self.yaw_angle)
+
+
+                    if np.abs(self.spin_angles[self.spin_angle_count] - self.yaw_angle) < np.pi/20:
+                        print("next small increment")
+                        # Publish the pose for 5 seconds
+                        if len(self.stopping_angles) > 0:
+                            if np.abs(self.yaw_angle - self.stopping_angles[0]) < np.pi/20:
+                                print("Reaching recording point {0}".format(4 - len(self.stopping_angles)))
+                                start = rospy.Time.now()
+                                while not rospy.is_shutdown() and (rospy.Time.now() - start) < rospy.Duration(5.0):
+                                    self.local_pos_pub.publish(self.pose)
+                                    rate.sleep()
+                                print("Leaving recording point")
+                                self.stopping_angles = self.stopping_angles[1:]
                         
-                    self.pose.pose.position.z = 0.4
+                        # Increment the small spin angle count
+                        self.spin_angle_count += 1
+                        if self.spin_angle_count >= len(self.spin_angles):
+                            self.spin_done = True
+                            print("SPIN DONE")
+
+                    self.pose.pose.position.z = 0.5
+                    self.pose.pose.position.x = 0
+                    self.pose.pose.position.y = 0
                     self.pose.pose.orientation.x = q[0]
                     self.pose.pose.orientation.y = q[1]
                     self.pose.pose.orientation.z = q[2]
@@ -454,9 +481,12 @@ class ChallengeTask3:
                 if self.spin_done: 
                     # Run planning given the static map 
                     if not self.planning_done: 
+                        print("RUN PLANNING")
                         self.run_planning()
+                        
                     else:
-                        pass
+                        print("Spin done, waiting for test...")
+                        self.local_pos_pub.publish(self.pose)
 
             elif (self.STATE == 'TEST' or (self.STATE == 'LAND' and self.waypoint_cnt < self.num_waypoints-1)):
                 #print('Comm node: Testing...')

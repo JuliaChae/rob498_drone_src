@@ -41,7 +41,7 @@ T_CAMERA_TO_PIXHAWK[0, 3] = 0.115
 T_CAMERA_TO_PIXHAWK[1, 3] = -0.06
 T_CAMERA_TO_PIXHAWK[2, 3] = -0.05
 
-NEW_OBS_DISTANCE_THRESHOLD = 0.2
+NEW_OBS_DISTANCE_THRESHOLD = 0.5
 MIN_FRAMES_FOR_NEW_PILLAR = 25
 RADIUS = 0.159
 MAX_POSSIBLE_DIST_TO_OBS = 5
@@ -298,16 +298,44 @@ class RGBOccupancyGrid:
         pixhawk_x = T_CAMERA_TO_PIXHAWK[0,3] + dist * np.cos(alpha)
         pixhawk_y = -T_CAMERA_TO_PIXHAWK[1,3] + dist * np.sin(alpha)
 
-        print("ph x: ", pixhawk_x)
-        print("ph y: ", pixhawk_y)
+        # print("ph x: ", pixhawk_x)
+        # print("ph y: ", pixhawk_y)
 
         pixhawk_coord = np.asarray([pixhawk_x, pixhawk_y, self.pixhawk_to_world[2,3], 1]).T
         world_coord = np.matmul(self.pixhawk_to_world, pixhawk_coord)
         detected_pillar_x = world_coord[0]
         detected_pillar_y = world_coord[1]
-        print((beta/np.pi)*180)
-        print("pillar x: ", detected_pillar_x)
-        print("pillar y: ", detected_pillar_y)
+        
+        
+        # Find the closest tracked obstacle to the current detection
+        closest_distance = float('inf')
+        for track_id, obstacle in self.tracked_obstacles.items():
+            obs_to_obs_dist = abs(detected_pillar_x - obstacle['x']) + abs(detected_pillar_y - obstacle['y'])
+            if obs_to_obs_dist < closest_distance:
+                closest_distance = obs_to_obs_dist
+                closest_track_id = track_id
+
+        # Check if the closest obstacle to the current detection
+        # is within a certain distance threshold to the current detection
+        if closest_distance < NEW_OBS_DISTANCE_THRESHOLD:
+            # Update the coordinates of the closest obstacle
+            self.tracked_obstacles[closest_track_id]['x_hist'].append(detected_pillar_x)
+            self.tracked_obstacles[closest_track_id]['y_hist'].append(detected_pillar_y)
+            self.tracked_obstacles[closest_track_id]['x'] = np.asarray(self.tracked_obstacles[closest_track_id]['x_hist']).mean()
+            self.tracked_obstacles[closest_track_id]['y'] = np.asarray(self.tracked_obstacles[closest_track_id]['y_hist']).mean()
+            self.tracked_obstacles[closest_track_id]['frames'] += 1
+        else:
+            # This is a new detection not seen before, 
+            # so create a new track ID for the current detection
+            new_track_id = len(self.tracked_obstacles) + 1
+            self.tracked_obstacles[new_track_id] = {
+                'x': detected_pillar_x,
+                'y': detected_pillar_y,
+                'x_hist': [detected_pillar_x],
+                'y_hist': [detected_pillar_y],
+                'frames': 1
+            }
+        self.pose_array = PoseArray() 
         for i in self.tracked_obstacles.values():
             if i['frames'] > 25 and np.sqrt(i['x']**2 + i['y']**2) < 5:
                 pose = Pose()
@@ -317,34 +345,9 @@ class RGBOccupancyGrid:
 
                 # Add the Pose object to the PoseArray
                 self.pose_array.poses.append(pose)
-                print(i)
-        self.obstacle_pub.publish(self.pose_array)
-        
-        # Find the closest tracked obstacle to the current detection
-        closest_distance = float('inf')
-        for track_id, obstacle in self.tracked_obstacles.items():
-            obs_to_obs_dist = np.linalg.norm(np.array([detected_pillar_x, detected_pillar_y]) - np.array([obstacle['x'], obstacle['y']]))
-            if obs_to_obs_dist < closest_distance:
-                closest_distance = obs_to_obs_dist
-                closest_track_id = track_id
+                # print(i)
 
-        # Check if the closest obstacle to the current detection
-        # is within a certain distance threshold to the current detection
-        if closest_distance < NEW_OBS_DISTANCE_THRESHOLD:
-            # Update the coordinates of the closest obstacle
-            self.tracked_obstacles[closest_track_id]['x'] = detected_pillar_x
-            self.tracked_obstacles[closest_track_id]['y'] = detected_pillar_y
-            self.tracked_obstacles[closest_track_id]['frames'] += 1
-        else:
-            # This is a new detection not seen before, 
-            # so create a new track ID for the current detection
-            new_track_id = len(self.tracked_obstacles) + 1
-            self.tracked_obstacles[new_track_id] = {
-                'x': detected_pillar_x,
-                'y': detected_pillar_y,
-                'frames': 1
-            }
-        # print(self.tracked_obstacles)
+        self.obstacle_pub.publish(self.pose_array)
 
     def visualize_map(self):
         # Create a new image
@@ -423,5 +426,5 @@ if __name__ == "__main__":
     # occ_grid.calibrate_camera()
     rate = rospy.Rate(10)
     while not rospy.is_shutdown():
-        occ_grid.publish_final_map()
+        occ_grid.obstacle_pub.publish(occ_grid.pose_array)
         rate.sleep()
