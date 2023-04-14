@@ -220,18 +220,18 @@ class RGBOccupancyGrid:
         long_term_detections = [d for d in self.tracked_obstacles.values() if d['frames'] > MIN_FRAMES_FOR_NEW_PILLAR]
 
         # If we haven't found the map yet, check if we can finalize the map
-        if len(self.final_pillars.items()) == 0:
+        if len(self.final_pillars) == 0:
             map_done, final_pillars = self.verify_final_map(long_term_detections)
             if map_done:
                 self.final_pillars = final_pillars
         else:
-            assert(len(self.final_pillars.items()) == 4)
+            assert(len(self.final_pillars) == 4)
 
     def publish_final_map(self):
         if len(self.final_pillars) == 0:
             return
         else:
-            assert(len(self.final_pillars.items()) == 4)
+            assert(len(self.final_pillars) == 4)
 
         pose_array = PoseArray()
         # Set the frame ID for the PoseArray (optional)
@@ -409,5 +409,5 @@ if __name__ == "__main__":
     # occ_grid.calibrate_camera()
     rate = rospy.Rate(10)
     while not rospy.is_shutdown():
-        RGBOccupancyGrid.publish_final_map()
+        occ_grid.publish_final_map()
         rate.sleep()

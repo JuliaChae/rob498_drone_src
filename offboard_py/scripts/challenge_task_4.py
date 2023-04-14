@@ -13,12 +13,12 @@ class ChallengeTask3:
 
     def __init__(self):
         self.STATE = 'INIT'
-        self.num_waypoints = 14 # Expected number of waypoints
-        self.WAYPOINTS = None
-        # self.WAYPOINTS = np.array([[0, 1, 0.4],[0, 2, 0.4],[1, 1, 0.6], [0, 0, 0.15]])
+        self.num_waypoints = 6 # Expected number of waypoints
+        # self.WAYPOINTS = None
+        self.WAYPOINTS = np.array([[0, 1, 1],[1, 1, 1],[1, 0, 1]])
         self.WAYPOINTS_ORIG = None
         self.WAYPOINT_FLAG = np.full((self.num_waypoints, ), False)
-        self.WAYPOINTS_RECEIVED = False
+        self.WAYPOINTS_RECEIVED = True
         self.halfface = 0.15
         self.PERTURB_OFFSET = np.asarray([[-self.halfface, -self.halfface, -self.halfface]])
         self.PERTURB_FLAG = np.full((self.PERTURB_OFFSET.shape[0], ), False)
@@ -40,10 +40,10 @@ class ChallengeTask3:
         self.spin_angles = np.hstack([pos_angles, neg_angles])
         #self.spin_angles = [np.pi/8, np.pi/4, 3*np.pi/8, np.pi/2,  5*np.pi/8, 3*np.pi/4, -3*np.pi/4, -5*np.pi/8, -np.pi/2, -3*np.pi/8, -np.pi/4, -np.pi/8, 0]
         self.spin_angle_count = 0
-        self.spin_done = False
-        self.obstacles_recieved = False
-        self.obstacle_map = None 
-        self.obstacle_type = None 
+        self.spin_done = True
+        self.obstacles_received = True
+        self.obstacle_map = np.asarray([[0.5, 1], [1, 0.5]]) 
+        self.obstacle_type = ["R", "L"] 
         self.planning_done = False
         self.avoid_distance = 1.0
 
@@ -102,6 +102,8 @@ class ChallengeTask3:
         self.WAYPOINTS = np.empty((0,3))
         self.WAYPOINT_ORIG = np.empty((0,3))
         for i, pose in enumerate(msg.poses):
+            y_offset = 0
+            """
             if i < 3:
                 y_offset = -0.5 
             elif i == 3:
@@ -116,6 +118,7 @@ class ChallengeTask3:
             print("In odom frame: ", pos)
             self.WAYPOINTS = np.vstack((self.WAYPOINTS, pos))
             self.WAYPOINTS_ORIG = np.vstack((self.WAYPOINT_ORIG, pos_h[:-1]))
+            """
             pos_h = np.array([pose.position.x, pose.position.y + y_offset, pose.position.z, 1])
             pos_transformed = np.matmul(self.T_odom_vicon, pos_h.T) # Transform from vicon frame to (pixhawk)odom frame
             pos = pos_transformed[:-1].T
@@ -308,18 +311,21 @@ class ChallengeTask3:
         for i, way_pt in enumerate(self.WAYPOINTS):
 
             # Get the waypoint relative to the "current" position
-            way_pt = way_pt - curr_pos
+            way_pt = way_pt[:2] - curr_pos[:2]
 
             # Get unit vector for the waypoint
             way_pt_mag = np.linalg.norm(way_pt)
             way_pt_norm = way_pt/way_pt_mag
-
+            print("way_pt_norm: ", way_pt_norm)
             # Get the obstacle distances to the path
-            obs_map_rel = self.obstacle_map - curr_pos 
-            obs_projs = np.matmul(obs_map_rel, way_pt_norm)
+            obs_map_rel = self.obstacle_map - curr_pos[:2] 
+            print("obs rel: ", obs_map_rel)
+            obs_projs = np.matmul(obs_map_rel, np.vstack((way_pt_norm, way_pt_norm)))
+            print("projs: ", obs_projs)
             obs_projs_mags = np.linalg.norm(obs_projs, axis=1) 
             obs_dist_vecs = obs_map_rel - obs_projs
             obs_dists = np.linalg.norm(obs_dist_vecs, axis=1)
+            print("dist: ", obs_dists)
 
             # Get obstacles that are along the path
             obs_mask = np.logical_and(np.squeeze(obs_projs_mags > 0), np.squeeze(obs_projs_mags < way_pt_mag))
@@ -329,7 +335,14 @@ class ChallengeTask3:
                 on_right = None
                 if obs_mask[j] == True: 
                     curr_obs_dist_vec = obs_dist_vecs[j]
-                    curr_obs_dist_unit = curr_obs_dist_vec/obs_dists[j]
+                    if obs_dists[j] == 0:
+                        if way_pt[0] > way_pt[1]:
+                            # Make this perpendicular to way_pt
+                            curr_obs_dist_unit = np.asarray([0, 1])
+                        else:
+                            curr_obs_dist_unit = np.asarray([1, 0])
+                    else:
+                        curr_obs_dist_unit = curr_obs_dist_vec/obs_dists[j]
                     curr_obs_waypoint_dist_vec = np.matmul(obs_projs[j], curr_obs_dist_unit)
                     if obs_dists[j] < np.linalg.norm(curr_obs_waypoint_dist_vec):
                         print("to the right")
@@ -338,22 +351,26 @@ class ChallengeTask3:
                         print("to the left")
                         on_right = False
                     AVOID_WAYPOINTS = np.empty((0,3))
-                    if (self.obstacle_type["R"] and on_right) or (self.obstacle_type["L"] and not on_right): 
+                    if (self.obstacle_type[j] == "R" and on_right) or (self.obstacle_type[j] == "L" and not on_right): 
                         dir_sign = -1 
                     else: 
                         dir_sign = 1
 
-                    # compute additional waypoints 
-                    wp_1 = curr_pos + dir_sign*curr_obs_dist_unit*self.avoid_distance
+                    # compute additional waypoints
+                    # account for the distance from the waypoint line to the obstacle
+                    wp_1 = curr_pos[:2] + dir_sign*curr_obs_dist_unit*self.avoid_distance
+                    wp_1_full = np.hstack((wp_1, np.asarray([self.WAYPOINTS[i, 2]])))
                     wp_2 = wp_1 + way_pt
-                    wp_3 = wp_2 - dir_sign*curr_obs_dist_unit*self.avoid_distance
-                    
+                    wp_2_full = np.hstack((wp_1, np.asarray([self.WAYPOINTS[i, 2]])))
+                    AVOID_WAYPOINTS = np.vstack((wp_1_full, wp_2_full))
                     print("Adding waypoints to avoid obstacle!")
                     print("Obstacle: ", obs)
-                    print("Added Waypoints: ", np.asarray([[wp_1], [wp_2], [wp_3]]))
+                    print("Added Waypoints: ", np.asarray([[wp_1], [wp_2]]))
                     
                     # add additional waypoints into self.WAYPOINTS
-                    self.WAYPOINTS = np.insert(self.WAYPOINTS, i, np.asarray([[wp_1], [wp_2], [wp_3]]))
+                    print(self.WAYPOINTS.shape)
+                    print(AVOID_WAYPOINTS)
+                    self.WAYPOINTS = np.insert(self.WAYPOINTS, i, AVOID_WAYPOINTS, axis=1) 
 
             curr_pos = self.WAYPOINTS[i]
 
