@@ -336,11 +336,18 @@ class ChallengeTask3:
                 if obs_mask[j] == True: 
                     curr_obs_dist_vec = obs_dist_vecs[j]
                     if obs_dists[j] == 0:
+                        # I dont know if you want to have different code for the if and else
+                        # right now they are the same. You swap the x and y components of the
+                        # vector, negate the second component, and then normalize it. This 
+                        # should give you a vector that is perpendicular to the way_pt.
                         if way_pt[0] > way_pt[1]:
-                            # Make this perpendicular to way_pt
-                            curr_obs_dist_unit = np.asarray([0, 1])
+                            # curr_obs_dist_unit = np.asarray([0, 1])
+                            curr_obs_dist_unit = np.array([-way_pt[1], way_pt[0]])
+                            curr_obs_dist_unit = curr_obs_dist_unit / np.linalg.norm(curr_obs_dist_unit)  
                         else:
-                            curr_obs_dist_unit = np.asarray([1, 0])
+                            # curr_obs_dist_unit = np.asarray([1, 0])
+                            curr_obs_dist_unit = np.array([-way_pt[1], way_pt[0]])
+                            curr_obs_dist_unit = curr_obs_dist_unit / np.linalg.norm(curr_obs_dist_unit) 
                     else:
                         curr_obs_dist_unit = curr_obs_dist_vec/obs_dists[j]
                     curr_obs_waypoint_dist_vec = np.matmul(obs_projs[j], curr_obs_dist_unit)
