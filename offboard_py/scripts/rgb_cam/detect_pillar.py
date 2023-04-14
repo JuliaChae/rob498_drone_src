@@ -68,6 +68,9 @@ class RGBOccupancyGrid:
         self.num = 0 
         self.rows = 540
         self.cols = 540
+        self.pose_array = PoseArray()
+        # Set the frame ID for the PoseArray (optional)
+        self.pose_array.header.frame_id = "pillars_map"
         
     def stream_video(self): 
         # Create a VideoCapture object and read from input file
@@ -146,7 +149,7 @@ class RGBOccupancyGrid:
             fx = K[0,0]
             w_gt = 0.3183
             d = (fx*w_gt)/w
-            if area > 1000 and d > 0.5 and d < 3 and max_area < area and h > w:
+            if area > 1000 and d > 0.5 and d < 6 and max_area < area and h > w:
                 valid_pillar = [x, y, w, h]
                 max_area = area 
         
@@ -228,10 +231,10 @@ class RGBOccupancyGrid:
             assert(len(self.final_pillars) == 4)
 
     def publish_final_map(self):
-        if len(self.final_pillars) == 0:
-            return
-        else:
-            assert(len(self.final_pillars) == 4)
+        # if len(self.final_pillars) == 0:
+        #     return
+        # else:
+        #     assert(len(self.final_pillars) == 4)
 
         pose_array = PoseArray()
         # Set the frame ID for the PoseArray (optional)
@@ -247,7 +250,7 @@ class RGBOccupancyGrid:
             pose_array.poses.append(pose)
 
         # Publish the PoseArray
-        self.obstacle_pub.publish(pose_array)
+        #self.obstacle_pub.publish(pose_array)
 
     def verify_final_map(self, candidates):
         if len(candidates) < 4:
@@ -280,7 +283,7 @@ class RGBOccupancyGrid:
         y_m = -dist_pair[1]
 
         # Threshold the distance to the pillar
-        if dist > MAX_POSSIBLE_DIST_TO_OBS or dist < MIN_POSSIBLE_DIST_TO_OBS:
+        if abs(dist) > MAX_POSSIBLE_DIST_TO_OBS or abs(dist) < MIN_POSSIBLE_DIST_TO_OBS:
             return
 
         T_camera_to_world = np.matmul(self.pixhawk_to_world, T_CAMERA_TO_PIXHAWK)
@@ -305,6 +308,17 @@ class RGBOccupancyGrid:
         print((beta/np.pi)*180)
         print("pillar x: ", detected_pillar_x)
         print("pillar y: ", detected_pillar_y)
+        for i in self.tracked_obstacles.values():
+            if i['frames'] > 25 and np.sqrt(i['x']**2 + i['y']**2) < 5:
+                pose = Pose()
+                pose.position.x = i['x']
+                pose.position.y = i['y']
+                pose.position.z = 0.0
+
+                # Add the Pose object to the PoseArray
+                self.pose_array.poses.append(pose)
+                print(i)
+        self.obstacle_pub.publish(self.pose_array)
         
         # Find the closest tracked obstacle to the current detection
         closest_distance = float('inf')

@@ -35,8 +35,8 @@ class ChallengeTask3:
         self.use_vicon = False
         self.yaw_angle = 0
         #self.spin_angles = np.linspace(-n, np.pi/4, 12)
-        pos_angles = np.linspace(0, 1, 10)*np.pi/2 
-        neg_angles = np.linspace(-0.9, 0, 9)*np.pi/2 
+        pos_angles = np.linspace(0, 1, 20)*np.pi 
+        neg_angles = np.linspace(-0.9, 0, 9)*np.pi 
         self.spin_angles = np.hstack([pos_angles, neg_angles])
         #self.spin_angles = [np.pi/8, np.pi/4, 3*np.pi/8, np.pi/2,  5*np.pi/8, 3*np.pi/4, -3*np.pi/4, -5*np.pi/8, -np.pi/2, -3*np.pi/8, -np.pi/4, -np.pi/8, 0]
         self.spin_angle_count = 0
@@ -98,12 +98,41 @@ class ChallengeTask3:
         self.WAYPOINTS = np.empty((0,3))
         self.WAYPOINT_ORIG = np.empty((0,3))
         for i, pose in enumerate(msg.poses):
-            if i < 3:
-                y_offset = -0.5 
+            if i == 0:
+                x_offset_approach = 
+                y_offset_approach = 
+                x_offset_depart =
+                y_offset_depart =
+            elif i == 1: 
+                x_offset_approach =
+                y_offset_approach = 
+                x_offset_depart =
+                y_offset_depart =
+            elif i == 2:
+                x_offset_approach =
+                y_offset_approach = 
+                x_offset_depart =
+                y_offset_depart =
             elif i == 3:
-                y_offset = 0
-            else: 
-                y_offset = 0.2
+                x_offset_approach =
+                y_offset_approach = 
+                x_offset_depart =
+                y_offset_depart =
+            elif i == 4:
+                x_offset_approach =
+                y_offset_approach = 
+                x_offset_depart =
+                y_offset_depart =
+            elif i == 5:
+                x_offset_approach =
+                y_offset_approach = 
+                x_offset_depart =
+                y_offset_depart =
+            else:
+                x_offset_approach =
+                y_offset_approach = 
+                x_offset_depart =
+                y_offset_depart =    
             pos_h = np.array([pose.position.x - 0.3, pose.position.y + 0.3 + y_offset, pose.position.z, 1])
             pos_transformed = np.matmul(self.T_odom_vicon, pos_h.T) # Transform from vicon frame to (pixhawk)odom frame
             pos = pos_transformed[:-1].T
@@ -309,7 +338,7 @@ class ChallengeTask3:
                 #print('Comm node: Initializing...')
                 self.pose.pose.position.z = 0
             if self.STATE == 'LAUNCH':
-                #print('Comm node: Launching...')
+                print('Comm node: Launching...')
                 self.pose.pose.position.z = 0.4
                 #self.current_waypoint = np.asarray([0,0,0.4])
                 #self.perturb_from_waypoint()
@@ -319,24 +348,29 @@ class ChallengeTask3:
                     continue
 
                 q = tf.transformations.quaternion_from_euler(0, 0, self.spin_angles[self.spin_angle_count])
-                
+                print("Current spin angle: ", self.spin_angles[self.spin_angle_count])
+                print("At this angle: ", self.yaw_angle)
 
-                if np.linalg.abs(self.spin_angles[self.spin_angle_count] - self.yaw_angle) < np.pi/20:
+
+                if np.abs(self.spin_angles[self.spin_angle_count] - self.yaw_angle) < np.pi/20:
                     print("next small increment")
                     # Publish the pose for 5 seconds
-                    if np.linalg.abs(self.yaw_angle - self.stopping_angles[0]) < np.pi/20:
-                        print("Reaching recording point {0}".format(4 - len(self.stopping_angles)))
-                        start = rospy.Time.now()
-                        while not rospy.is_shutdown() and (rospy.Time.now() - start) < rospy.Duration(5.0):
-                            self.local_pos_pub.publish(self.pose)
-                            rate.sleep()
-                        print("Leaving recording point")
-                        self.stopping_angles = self.stopping_angles[1:]
+                    if len(self.stopping_angles) > 0:
+                        if np.abs(self.yaw_angle - self.stopping_angles[0]) < np.pi/20:
+                            print("Reaching recording point {0}".format(4 - len(self.stopping_angles)))
+                            start = rospy.Time.now()
+                            while not rospy.is_shutdown() and (rospy.Time.now() - start) < rospy.Duration(8.0):
+                                self.local_pos_pub.publish(self.pose)
+                                rate.sleep()
+                            print("Leaving recording point")
+                            self.stopping_angles = self.stopping_angles[1:]
                     
                     # Increment the small spin angle count
                     self.spin_angle_count += 1
 
                 self.pose.pose.position.z = 0.4
+                self.pose.pose.position.x = 0
+                self.pose.pose.position.y = 0
                 self.pose.pose.orientation.x = q[0]
                 self.pose.pose.orientation.y = q[1]
                 self.pose.pose.orientation.z = q[2]
@@ -401,7 +435,6 @@ class ChallengeTask3:
             
                     self.last_req = rospy.Time.now()
             #print("Comm node: Publishing pose...")
-            #print(self.pose)
             self.local_pos_pub.publish(self.pose)
             rate.sleep()
 

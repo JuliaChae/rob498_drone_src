@@ -2,5 +2,5 @@
 <launch>
 	<node pkg="offboard_py" type="republish_rgb_cam.py" name="repub_cam" required="true" output="screen" />
 	<node pkg="offboard_py" type="detect_pillar.py" name="detect_pillar" required="true" output="screen" />
-    	<node pkg="offboard_py" type="challenge_task_4_spin_code.py" name="challenge_task_4" required="true" output="screen" />
+    <node pkg="offboard_py" type="challenge_task_4.py" name="challenge_task_4" required="true" output="screen" />
 </launch>

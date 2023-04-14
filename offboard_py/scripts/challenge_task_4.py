@@ -8,6 +8,7 @@ from mavros_msgs.msg import State
 from mavros_msgs.srv import CommandBool, CommandBoolRequest, SetMode, SetModeRequest
 from tf.transformations import quaternion_matrix
 import tf
+import pdb
 
 class ChallengeTask3:
 
@@ -15,7 +16,8 @@ class ChallengeTask3:
         self.STATE = 'INIT'
         self.num_waypoints = 6 # Expected number of waypoints
         # self.WAYPOINTS = None
-        self.WAYPOINTS = np.array([[0, 1, 1],[1, 1, 1],[1, 0, 1]])
+        self.WAYPOINTS = np.array([[0, 5, 1],[5, 5, 1],[5, 0, 1]])
+        self.WAYPOINTS_AVOID = np.zeros((0,3))
         self.WAYPOINTS_ORIG = None
         self.WAYPOINT_FLAG = np.full((self.num_waypoints, ), False)
         self.WAYPOINTS_RECEIVED = True
@@ -42,10 +44,10 @@ class ChallengeTask3:
         self.spin_angle_count = 0
         self.spin_done = True
         self.obstacles_received = True
-        self.obstacle_map = np.asarray([[0.5, 1], [1, 0.5]]) 
+        self.obstacle_map = np.asarray([[2.5, 5], [5, 2.5]]) 
         self.obstacle_type = ["R", "L"] 
         self.planning_done = False
-        self.avoid_distance = 1.0
+        self.avoid_distance = 1.5
 
     def state_cb(self, msg):
         self.current_state = msg
@@ -320,7 +322,7 @@ class ChallengeTask3:
             # Get the obstacle distances to the path
             obs_map_rel = self.obstacle_map - curr_pos[:2] 
             print("obs rel: ", obs_map_rel)
-            obs_projs = np.matmul(obs_map_rel, np.vstack((way_pt_norm, way_pt_norm)))
+            obs_projs = np.expand_dims((np.sum(obs_map_rel*np.vstack((way_pt, way_pt)), axis=1)/(way_pt_mag**2)), axis=-1)*way_pt
             print("projs: ", obs_projs)
             obs_projs_mags = np.linalg.norm(obs_projs, axis=1) 
             obs_dist_vecs = obs_map_rel - obs_projs
@@ -330,7 +332,7 @@ class ChallengeTask3:
             # Get obstacles that are along the path
             obs_mask = np.logical_and(np.squeeze(obs_projs_mags > 0), np.squeeze(obs_projs_mags < way_pt_mag))
             obs_mask = np.logical_and(obs_mask, np.squeeze(obs_dists < 1.0))
-
+            pdb.set_trace()
             for j, obs in enumerate(self.obstacle_map):
                 on_right = None
                 if obs_mask[j] == True: 
@@ -365,20 +367,23 @@ class ChallengeTask3:
 
                     # compute additional waypoints
                     # account for the distance from the waypoint line to the obstacle
-                    wp_1 = curr_pos[:2] + dir_sign*curr_obs_dist_unit*self.avoid_distance
+                    print("testing:", curr_pos[:2], dir_sign, curr_obs_dist_unit, self.avoid_distance)
+                    wp_1 = curr_pos[:2] + dir_sign*curr_obs_dist_unit*(self.avoid_distance)  
                     wp_1_full = np.hstack((wp_1, np.asarray([self.WAYPOINTS[i, 2]])))
                     wp_2 = wp_1 + way_pt
-                    wp_2_full = np.hstack((wp_1, np.asarray([self.WAYPOINTS[i, 2]])))
+                    wp_2_full = np.hstack((wp_2, np.asarray([self.WAYPOINTS[i, 2]])))
                     AVOID_WAYPOINTS = np.vstack((wp_1_full, wp_2_full))
                     print("Adding waypoints to avoid obstacle!")
                     print("Obstacle: ", obs)
                     print("Added Waypoints: ", np.asarray([[wp_1], [wp_2]]))
-                    
+                    pdb.set_trace()                    
                     # add additional waypoints into self.WAYPOINTS
                     print(self.WAYPOINTS.shape)
                     print(AVOID_WAYPOINTS)
-                    self.WAYPOINTS = np.insert(self.WAYPOINTS, i, AVOID_WAYPOINTS, axis=1) 
-
+                    if self.WAYPOINTS_AVOID is None:
+                        self.WAYPOINTS_AVOID = np.vstack([self.WAYPOINTS[i], AVOID_WAYPOINTS])
+                    else:
+                        self.WAYPOINTS_AVOID = np.vstack([self.WAYPOINTS_AVOID, self.WAYPOINTS[i], AVOID_WAYPOINTS])
             curr_pos = self.WAYPOINTS[i]
 
         self.planning_done = True 
