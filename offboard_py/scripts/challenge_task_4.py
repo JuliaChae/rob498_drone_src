@@ -352,23 +352,23 @@ class ChallengeTask3:
                             curr_obs_dist_unit = curr_obs_dist_unit / np.linalg.norm(curr_obs_dist_unit) 
                     else:
                         curr_obs_dist_unit = curr_obs_dist_vec/obs_dists[j]
-                    curr_obs_waypoint_dist_vec = np.matmul(obs_projs[j], curr_obs_dist_unit)
-                    if obs_dists[j] < np.linalg.norm(curr_obs_waypoint_dist_vec):
+                    if np.cross(np.hstack(way_pt, np.asarray([1])), np.hstack(obs_map_rel[j], np.asarray([1])))[2] > 0:
                         print("to the right")
                         on_right = True
                     else: 
                         print("to the left")
-                        on_right = False
+                        on_right = True
                     AVOID_WAYPOINTS = np.empty((0,3))
                     if (self.obstacle_type[j] == "R" and on_right) or (self.obstacle_type[j] == "L" and not on_right): 
                         dir_sign = -1 
                     else: 
                         dir_sign = 1
+                    
 
                     # compute additional waypoints
                     # account for the distance from the waypoint line to the obstacle
                     print("testing:", curr_pos[:2], dir_sign, curr_obs_dist_unit, self.avoid_distance)
-                    wp_1 = curr_pos[:2] + dir_sign*curr_obs_dist_unit*(self.avoid_distance)  
+                    wp_1 = curr_pos[:2] + dir_sign*curr_obs_dist_unit*(self.avoid_distance + dir_sign*obs_dists[j])   
                     wp_1_full = np.hstack((wp_1, np.asarray([self.WAYPOINTS[i, 2]])))
                     wp_2 = wp_1 + way_pt
                     wp_2_full = np.hstack((wp_2, np.asarray([self.WAYPOINTS[i, 2]])))
