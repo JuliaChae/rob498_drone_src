@@ -204,10 +204,12 @@ class ChallengeTask3:
     def callback_obstacles(self, obstacle_msg):
         if self.obstacles_received or not self.spin_done:
             pass
-        elif not self.obstacles_received and self.spin_done:
+        else:
             self.obstacle_map = np.empty((0,2))
             self.obstacle_type = []
-            self.obstacles_received = True 
+            self.obstacles_received = True
+
+            print("Obstacles received")
             for i, pose in enumerate(obstacle_msg.poses):
                 obs = np.array([pose.position.x, pose.position.y])
 
@@ -307,7 +309,7 @@ class ChallengeTask3:
         return 
 
     def run_planning(self):
-
+        print(self.obstacles_received, self.WAYPOINTS_RECEIVED)
         if not self.obstacles_received or not self.WAYPOINTS_RECEIVED: 
             return False 
         
@@ -327,7 +329,7 @@ class ChallengeTask3:
             # Get the obstacle distances to the path
             obs_map_rel = self.obstacle_map - curr_pos[:2] 
             # print("obs rel: ", obs_map_rel)
-            obs_projs = np.expand_dims((np.sum(obs_map_rel*np.vstack((way_pt, way_pt)), axis=1)/(way_pt_mag**2)), axis=-1)*way_pt
+            obs_projs = np.expand_dims((np.sum(obs_map_rel*np.vstack([way_pt]*obs_map_rel.shape[0]), axis=1)/(way_pt_mag**2)), axis=-1)*way_pt
             # print("projs: ", obs_projs)
             obs_projs_mags = np.linalg.norm(obs_projs, axis=1) 
             obs_dist_vecs = obs_map_rel - obs_projs
@@ -387,11 +389,12 @@ class ChallengeTask3:
                         self.WAYPOINTS_AVOID = AVOID_WAYPOINTS
                     else:
                         self.WAYPOINTS_AVOID = np.vstack([self.WAYPOINTS_AVOID, AVOID_WAYPOINTS])
-
+            waypoint_dip = self.WAYPOINTS[i]
+            waypoint_dip[2] = self.WAYPOINTS[i, 2] + 0.2
             if self.WAYPOINTS_AVOID is None:
-                self.WAYPOINTS_AVOID = self.WAYPOINTS[i]
+                self.WAYPOINTS_AVOID = np.vstack([self.WAYPOINTS[i], waypoint_dip]) 
             else:
-                self.WAYPOINTS_AVOID = np.vstack([self.WAYPOINTS_AVOID, self.WAYPOINTS[i]])
+                self.WAYPOINTS_AVOID = np.vstack([self.WAYPOINTS_AVOID, self.WAYPOINTS[i], waypoint_dip])
             curr_pos = self.WAYPOINTS[i]
 
         print("DONE PLANNING")
@@ -440,6 +443,8 @@ class ChallengeTask3:
             if self.STATE == 'LAUNCH':
                 #print('Comm node: Launching...')
                 self.pose.pose.position.z = 0.5
+                self.pose.pose.position.x = 0.0
+                self.pose.pose.position.y = 0.0
                 #self.current_waypoint = np.asarray([0,0,0.4])
                 #self.perturb_from_waypoint()
             if self.STATE == 'SPIN':
@@ -458,7 +463,7 @@ class ChallengeTask3:
                             if np.abs(self.yaw_angle - self.stopping_angles[0]) < np.pi/20:
                                 print("Reaching recording point {0}".format(4 - len(self.stopping_angles)))
                                 start = rospy.Time.now()
-                                while not rospy.is_shutdown() and (rospy.Time.now() - start) < rospy.Duration(5.0):
+                                while not rospy.is_shutdown() and (rospy.Time.now() - start) < rospy.Duration(8.0):
                                     self.local_pos_pub.publish(self.pose)
                                     rate.sleep()
                                 print("Leaving recording point")
@@ -471,8 +476,8 @@ class ChallengeTask3:
                             print("SPIN DONE")
 
                     self.pose.pose.position.z = 0.5
-                    self.pose.pose.position.x = 0
-                    self.pose.pose.position.y = 0
+                    self.pose.pose.position.x = 0.0
+                    self.pose.pose.position.y = 0.0
                     self.pose.pose.orientation.x = q[0]
                     self.pose.pose.orientation.y = q[1]
                     self.pose.pose.orientation.z = q[2]
@@ -508,7 +513,7 @@ class ChallengeTask3:
                     #print(self.waypoint_cnt, self.current_waypsoint, self.current_pose)
                     #print("Current norm:", np.linalg.norm(self.current_waypoint - self.current_pose))
 
-                    if np.linalg.norm(self.current_waypoint - self.current_pose) < 0.075 and not self.WAYPOINT_FLAG[self.waypoint_cnt]:
+                    if np.linalg.norm(self.current_waypoint - self.current_pose) < 0.1 and not self.WAYPOINT_FLAG[self.waypoint_cnt]:
                         print("ARRIVED AT WAYPOINT")
                         print("Waypoint count, current waypoint, current pose:", self.waypoint_cnt, self.current_waypoint, self.current_pose)
                         print("ARRIVED WITHIN NORM:", np.linalg.norm(self.current_waypoint - self.current_pose))
@@ -516,8 +521,8 @@ class ChallengeTask3:
                         print("Error btwn vicon and odom: ", np.linalg.norm(self.current_pose - self.vicon_trans))
                         # start_time = rospy.Time.now()
 
-                        if self.waypoint_cnt %2 == 1 and self.waypoint_cnt > 2:
-                            self.perturb_from_waypoint()
+                        #if self.waypoint_cnt %2 == 1 and self.waypoint_cnt > 2:
+                            #self.perturb_from_waypoint()
                         
                         self.WAYPOINT_FLAG[self.waypoint_cnt] = True 
                             

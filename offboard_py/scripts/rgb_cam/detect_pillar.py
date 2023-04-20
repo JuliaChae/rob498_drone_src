@@ -50,6 +50,18 @@ MIN_DIST_BETWEEN_PILLARS = 2
 
 class RGBOccupancyGrid:
     def __init__(self):
+        self.num = 0
+        self.tracked_obstacles = {}
+        self.final_pillars = []
+        # This is the pose of the pixhawk in the world frame from odom_sub
+        self.pixhawk_to_world = np.eye(4) 
+        self.rows = 540
+        self.cols = 540
+        self.pose_array = PoseArray()
+        # Set the frame ID for the PoseArray (optional)
+        self.pose_array.header.frame_id = "pillars_map"
+        
+
         self.bridge=CvBridge()
         self.detect_pub = rospy.Publisher("detected_pillars", Image, queue_size=10)
         self.image_sub = rospy.Subscriber("imx219_image", Image, self.pillar_detection_callback)
@@ -61,17 +73,7 @@ class RGBOccupancyGrid:
         # This dictionary maps from obstacle ID to a dictionary of obstacle data, which includes
         # the x, y position and the number of frames that the obstacle has been tracked for.
         # It is being updated within the pillar_detection_callback function.
-        self.tracked_obstacles = {}
-        self.final_pillars = []
-        # This is the pose of the pixhawk in the world frame from odom_sub
-        self.pixhawk_to_world = np.eye(4)
-        self.num = 0 
-        self.rows = 540
-        self.cols = 540
-        self.pose_array = PoseArray()
-        # Set the frame ID for the PoseArray (optional)
-        self.pose_array.header.frame_id = "pillars_map"
-        
+    
     def stream_video(self): 
         # Create a VideoCapture object and read from input file
         # If the input is the camera, pass 0 instead of the video file name
@@ -337,11 +339,11 @@ class RGBOccupancyGrid:
             }
         self.pose_array = PoseArray() 
         for i in self.tracked_obstacles.values():
-            if i['frames'] > 25 and np.sqrt(i['x']**2 + i['y']**2) < 5:
+            if i['frames'] > 25 and np.sqrt(i['x']**2 + i['y']**2) < 7:
                 pose = Pose()
                 pose.position.x = i['x']
                 pose.position.y = i['y']
-                pose.position.z = 0.0
+                pose.position.z = 0
 
                 # Add the Pose object to the PoseArray
                 self.pose_array.poses.append(pose)
