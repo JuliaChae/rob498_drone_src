@@ -22,7 +22,7 @@ def repub_images():
     bridge=CvBridge()
     rate=rospy.Rate(10)
 
-    cap = cv2.VideoCapture("nvarguscamerasrc ! video/x-raw(memory:NVMM), width=(int)540, height=(int)540,format=(string)NV12, framerate=(fraction)30/1 ! nvvidconv ! video/x-raw, format=(string)BGRx ! videoconvert !  appsink")
+    cap = cv2.VideoCapture("nvarguscamerasrc ! video/x-raw(memory:NVMM), width=(int)540, height=(int)540,format=(string)NV12, framerate=(fraction)20/1 ! nvvidconv ! video/x-raw, format=(string)BGRx ! videoconvert !  appsink")
     if not cap.isOpened():
         print("Error")
         return
@@ -31,9 +31,10 @@ def repub_images():
         if not ret:
             print("Error")
             break
-        # frame = cv2.resize(frame, (frame.shape[1]//3, frame.shape[0]//3))
+
         frame = cv2.undistort(frame, K, D)
         frame = cv2.rotate(frame, cv2.ROTATE_180)
+        frame = cv2.resize(frame, (960, 540))
         image_msg = bridge.cv2_to_imgmsg(frame, encoding='bgr8')
         image_msg.header.stamp = rospy.Time.now()
         image_pub.publish(image_msg)

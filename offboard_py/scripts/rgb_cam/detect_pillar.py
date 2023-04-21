@@ -6,7 +6,7 @@ from sensor_msgs.msg import Image, CameraInfo
 from nav_msgs.msg import Odometry
 from cv_bridge import CvBridge
 import numpy as np 
-
+import rospy
 import tf
 from tf.transformations import quaternion_matrix
 import pdb
